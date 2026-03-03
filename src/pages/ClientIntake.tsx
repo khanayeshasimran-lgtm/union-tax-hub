@@ -114,7 +114,7 @@ export default function ClientIntake() {
   const fetchData = async () => {
     setLoading(true);
     const [intakeRes, casesRes, leadsRes] = await Promise.all([
-      (supabase.from("client_intake") as any)
+      supabase.from("client_intake")
         .select("*, leads(full_name, phone_number), cases(current_stage)")
         .order("created_at", { ascending: false }),
       supabase
@@ -172,7 +172,7 @@ export default function ClientIntake() {
     const ssnLast4 = ssnDigits.slice(-4);
     const ssnEncrypted = btoa(form.ssn); // base64 — replace with pgcrypto in production
 
-    const { error } = await (supabase.from("client_intake") as any).insert({
+    const { error } = await supabase.from("client_intake").insert({
       organization_id: orgId,
       lead_id: form.lead_id || null,
       case_id: form.case_id || null,
@@ -286,7 +286,7 @@ export default function ClientIntake() {
                         <option value="">Select case...</option>
                         {cases.map((c: any) => (
                           <option key={c.id} value={c.id}>
-                            {(c.leads as any)?.full_name || c.id} — {c.current_stage}
+                            {c.leads?.full_name || c.id} — {c.current_stage}
                           </option>
                         ))}
                       </select>

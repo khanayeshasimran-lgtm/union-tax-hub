@@ -218,8 +218,8 @@ export default function FollowUps() {
               : filtered.length === 0 ? <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No follow-ups</td></tr>
               : filtered.map((f) => (
                 <tr key={f.id} className={`data-table-row ${getPriorityClass(f)}`}>
-                  <td className="px-4 py-3 font-medium text-foreground">{(f.leads as any)?.full_name || "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{(f.leads as any)?.phone_number || "—"}</td>
+                  <td className="px-4 py-3 font-medium text-foreground">{f.leads?.full_name || "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{f.leads?.phone_number || "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{new Date(f.follow_up_datetime).toLocaleString()}</td>
                   <td className="px-4 py-3"><StatusBadge status={f.status} /></td>
                   <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">{f.notes || "—"}</td>

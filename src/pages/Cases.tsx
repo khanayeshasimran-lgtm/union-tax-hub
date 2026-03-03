@@ -216,8 +216,8 @@ export default function Cases() {
                     onDragStart={(e) => handleDragStart(e, c.id)}
                     className={`rounded-lg border bg-card p-3 shadow-sm transition-opacity ${isAdmin ? "cursor-grab active:cursor-grabbing" : ""} ${dragging === c.id ? "opacity-40" : "opacity-100"}`}
                   >
-                    <p className="text-sm font-medium">{(c.leads as any)?.full_name || "Unknown"}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{(c.leads as any)?.phone_number || ""}</p>
+                    <p className="text-sm font-medium">{c.leads?.full_name || "Unknown"}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{c.leads?.phone_number || ""}</p>
                     <div className="mt-2 flex items-center justify-between">
                       <AgeBadge createdAt={c.created_at} />
                       <button
@@ -290,7 +290,7 @@ export default function Cases() {
                         <span className="font-medium text-foreground">{h.new_stage}</span>
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {(h.profiles as any)?.full_name || "System"} · {new Date(h.created_at).toLocaleString()}
+                        {h.profiles?.full_name || "System"} · {new Date(h.created_at).toLocaleString()}
                       </p>
                     </div>
                   </div>

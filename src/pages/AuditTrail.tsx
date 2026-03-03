@@ -95,7 +95,7 @@ export default function AuditTrail() {
     ? logs.filter((l) =>
         (l.action_type || "").toLowerCase().includes(search.toLowerCase()) ||
         (l.entity_type || "").toLowerCase().includes(search.toLowerCase()) ||
-        ((l.profiles as any)?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (l.profiles?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
         (l.ip_address || "").includes(search)
       )
     : logs;
@@ -123,7 +123,7 @@ export default function AuditTrail() {
 
     const rows = data.map((log: any) => [
       new Date(log.created_at).toLocaleString(),
-      (log.profiles as any)?.full_name || "System",
+      log.profiles?.full_name || "System",
       log.action_type || "",
       log.entity_type || "",
       log.entity_id || "",
@@ -342,7 +342,7 @@ export default function AuditTrail() {
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-foreground">
-                      {(log.profiles as any)?.full_name || (
+                      {log.profiles?.full_name || (
                         <span className="text-xs italic text-muted-foreground">System</span>
                       )}
                     </td>

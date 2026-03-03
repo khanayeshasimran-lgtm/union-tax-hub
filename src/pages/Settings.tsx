@@ -41,7 +41,7 @@ export default function SettingsPage() {
       ]);
       if (profRes.data) {
         setProfile(profRes.data);
-        setOrgName((profRes.data.organizations as any)?.name || "");
+        setOrgName(profRes.data?.organizations?.name || "");
       }
       if (settingsRes.data) {
         setSettingsId(settingsRes.data.id);
@@ -76,7 +76,7 @@ export default function SettingsPage() {
   const handleManualRotation = async () => {
     setRotating(true);
     setRotationResult(null);
-    const { data, error } = await (supabase.rpc as any)("rotate_not_answered_leads");
+    const { data, error } = await supabase.rpc("rotate_not_answered_leads");
     if (error) {
       toast({ title: "Rotation failed", description: error.message, variant: "destructive" });
     } else {

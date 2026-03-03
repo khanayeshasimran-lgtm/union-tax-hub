@@ -158,7 +158,7 @@ export default function Revenue() {
                     <SelectContent>
                       {cases.map((c: any) => (
                         <SelectItem key={c.id} value={c.id}>
-                          {(c.leads as any)?.full_name || c.id}
+                          {c.leads?.full_name || c.id}
                           {c.current_stage ? ` — ${c.current_stage}` : ""}
                         </SelectItem>
                       ))}
@@ -307,13 +307,13 @@ export default function Revenue() {
                 </tr>
               ) : (
                 filtered.map((e) => {
-                  const stage = (e.cases as any)?.current_stage;
+                  const stage = e.cases?.current_stage;
                   const stageColor = stage ? STAGE_COLORS[stage] || "bg-muted text-muted-foreground" : "";
                   return (
                     <tr key={e.id} className="data-table-row">
                       {/* Client */}
                       <td className="px-4 py-3 font-medium text-foreground">
-                        {(e.cases as any)?.leads?.full_name || "—"}
+                        {e.cases?.leads?.full_name || "—"}
                       </td>
 
                       {/* Pipeline Stage */}

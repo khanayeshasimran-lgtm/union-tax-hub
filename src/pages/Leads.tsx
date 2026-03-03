@@ -215,7 +215,7 @@ export default function Leads() {
                 <thead className="border-b text-muted-foreground"><tr><th className="pb-2 pr-4 text-left">Lead</th><th className="pb-2 pr-4 text-left">Previous</th><th className="pb-2 pr-4 text-left">New Agent</th><th className="pb-2 text-left">Date</th></tr></thead>
                 <tbody>{historyData.length === 0 ? <tr><td colSpan={4} className="py-8 text-center text-muted-foreground">No changes yet</td></tr> : historyData.map((h) => (
                   <tr key={h.id} className="border-b">
-                    <td className="py-2 pr-4 font-medium">{(h.leads as any)?.full_name || "—"}</td>
+                    <td className="py-2 pr-4 font-medium">{h.leads?.full_name || "—"}</td>
                     <td className="py-2 pr-4 text-muted-foreground">{h.previous_agent_id || "Unassigned"}</td>
                     <td className="py-2 pr-4">{h.new_agent_id || "—"}</td>
                     <td className="py-2 text-xs text-muted-foreground">{new Date(h.created_at).toLocaleString()}</td>

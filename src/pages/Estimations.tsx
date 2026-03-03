@@ -68,7 +68,7 @@ export default function Estimations() {
         .from("cases")
         .select("id, current_stage, leads(full_name)")
         .eq("current_stage", "Intake Submitted"),
-      (supabase.from("client_intake") as any)
+         supabase.from("estimations")
         .select("id, full_legal_name, filing_status, w2_income, form_1099_income, business_income")
         .order("created_at", { ascending: false }),
     ]);
@@ -227,7 +227,7 @@ export default function Estimations() {
                       <option value="">Select case...</option>
                       {cases.map((c: any) => (
                         <option key={c.id} value={c.id}>
-                          {(c.leads as any)?.full_name || c.id} — {c.current_stage}
+                          {c.leads?.full_name || c.id} — {c.current_stage}
                         </option>
                       ))}
                     </select>

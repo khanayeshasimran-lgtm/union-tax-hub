@@ -1056,6 +1056,7 @@ export type Database = {
       get_user_role: { Args: never; Returns: string }
       mark_overdue_followups: { Args: never; Returns: undefined }
       process_followups_import: { Args: never; Returns: undefined }
+      refresh_leaderboard: { Args: never; Returns: undefined }
       rotate_not_answered_leads: {
         Args: never
         Returns: {

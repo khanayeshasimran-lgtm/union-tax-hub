@@ -9,33 +9,30 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 
 const agentMenu = [
-  { label: "Dashboard",   icon: LayoutDashboard, to: "/",          end: true },
-  { label: "My Leads",    icon: Users,            to: "/leads" },
-  { label: "Call Queue",  icon: Phone,            to: "/calls" },
-  { label: "Follow-Ups",  icon: CalendarClock,    to: "/followups" },
-  { label: "My Cases",    icon: Briefcase,        to: "/cases" },
-  { label: "Revenue",     icon: DollarSign,       to: "/revenue" },
-  { label: "Leaderboard", icon: Trophy,           to: "/leaderboard" },
-  { label: "Documents",   icon: FileText,         to: "/documents" },
-  { label: "Client Intake", icon: ClipboardList, to: "/intake" },
-  // Add to adminMenu (import ClipboardCheck from lucide-react)
-{ label: "Estimations", icon: ClipboardCheck, to: "/estimations" },
+  { label: "Dashboard",    icon: LayoutDashboard, to: "/",           end: true },
+  { label: "My Leads",     icon: Users,           to: "/leads" },
+  { label: "Call Queue",   icon: Phone,           to: "/calls" },
+  { label: "Follow-Ups",   icon: CalendarClock,   to: "/followups" },
+  { label: "My Cases",     icon: Briefcase,       to: "/cases" },
+  { label: "Client Intake",icon: ClipboardList,   to: "/intake" },
+  { label: "Revenue",      icon: DollarSign,      to: "/revenue" },
+  { label: "Leaderboard",  icon: Trophy,          to: "/leaderboard" },
+  { label: "Documents",    icon: FileText,        to: "/documents" },
 ];
 
 const adminMenu = [
-  { label: "Dashboard",   icon: LayoutDashboard, to: "/",          end: true },
-  { label: "All Leads",   icon: Users,            to: "/leads" },
-  { label: "Call Queue",  icon: Phone,            to: "/calls" },
-  { label: "Follow-Ups",  icon: CalendarClock,    to: "/followups" },
-  { label: "Cases",       icon: Briefcase,        to: "/cases" },
-  { label: "Revenue",     icon: DollarSign,       to: "/revenue" },
-  { label: "Leaderboard", icon: Trophy,           to: "/leaderboard" },
-  { label: "Documents",   icon: FileText,         to: "/documents" },
-  { label: "Audit Trail", icon: FileSearch,       to: "/audit" },
-  { label: "Settings",    icon: Settings,         to: "/settings" },
-  { label: "Client Intake", icon: ClipboardList, to: "/intake" },
-  // Add to adminMenu (import ClipboardCheck from lucide-react)
-{ label: "Estimations", icon: ClipboardCheck, to: "/estimations" },
+  { label: "Dashboard",    icon: LayoutDashboard, to: "/",           end: true },
+  { label: "All Leads",    icon: Users,           to: "/leads" },
+  { label: "Call Queue",   icon: Phone,           to: "/calls" },
+  { label: "Follow-Ups",   icon: CalendarClock,   to: "/followups" },
+  { label: "Cases",        icon: Briefcase,       to: "/cases" },
+  { label: "Client Intake",icon: ClipboardList,   to: "/intake" },
+  { label: "Estimations",  icon: ClipboardCheck,  to: "/estimations" },
+  { label: "Revenue",      icon: DollarSign,      to: "/revenue" },
+  { label: "Leaderboard",  icon: Trophy,          to: "/leaderboard" },
+  { label: "Documents",    icon: FileText,        to: "/documents" },
+  { label: "Audit Trail",  icon: FileSearch,      to: "/audit" },
+  { label: "Settings",     icon: Settings,        to: "/settings" },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -78,17 +75,12 @@ export function AppSidebar() {
         backgroundImage: "radial-gradient(ellipse at 20% 0%, rgba(99,102,241,0.08) 0%, transparent 60%)",
       }}
     >
-
-      {/* ── Logo ─────────────────────────────────────────────────────────────── */}
+      {/* ── Logo ──────────────────────────────────────────────────────────────── */}
       <div className={cn(
         "flex h-[60px] items-center border-b border-white/[0.06]",
         collapsed ? "justify-center px-0" : "px-4 gap-3"
       )}>
-        <div className={cn(
-          "flex items-center justify-center rounded-xl shrink-0",
-          "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25",
-          collapsed ? "h-8 w-8" : "h-8 w-8"
-        )}>
+        <div className="flex items-center justify-center rounded-xl shrink-0 h-8 w-8 bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
           <Building2 className="h-4 w-4 text-white" />
         </div>
         {!collapsed && (
@@ -103,7 +95,7 @@ export function AppSidebar() {
         )}
       </div>
 
-      {/* ── Collapse toggle ───────────────────────────────────────────────────── */}
+      {/* ── Collapse toggle ────────────────────────────────────────────────────── */}
       <button
         onClick={() => setCollapsed(!collapsed)}
         className={cn(
@@ -118,13 +110,13 @@ export function AppSidebar() {
           : <ChevronLeft className="h-3 w-3" />}
       </button>
 
-      {/* ── Navigation ───────────────────────────────────────────────────────── */}
+      {/* ── Navigation ────────────────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 space-y-0.5 scrollbar-none">
         {menu.map((item) => (
           <NavLink
-            key={item.to}
+            key={item.to + item.label}
             to={item.to}
-            end={item.end}
+            end={"end" in item ? item.end : false}
             className={({ isActive }) =>
               cn(
                 "group relative flex items-center rounded-lg transition-all duration-150",
@@ -137,17 +129,14 @@ export function AppSidebar() {
           >
             {({ isActive }) => (
               <>
-                {/* Active indicator bar */}
                 {isActive && (
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-indigo-400" />
                 )}
-
                 <item.icon className={cn(
                   "shrink-0 transition-all duration-150",
                   collapsed ? "h-[18px] w-[18px]" : "h-4 w-4",
                   isActive ? "text-indigo-400" : ""
                 )} />
-
                 {!collapsed && (
                   <span className={cn(
                     "text-[13px] font-medium tracking-tight truncate",
@@ -156,8 +145,6 @@ export function AppSidebar() {
                     {item.label}
                   </span>
                 )}
-
-                {/* Tooltip when collapsed */}
                 {collapsed && (
                   <span className={cn(
                     "pointer-events-none absolute left-full ml-3 z-50",
@@ -178,10 +165,7 @@ export function AppSidebar() {
       <div className="mx-3 h-px bg-white/[0.06]" />
 
       {/* ── User footer ───────────────────────────────────────────────────────── */}
-      <div className={cn(
-        "p-3",
-        collapsed ? "flex justify-center" : ""
-      )}>
+      <div className={cn("p-3", collapsed ? "flex justify-center" : "")}>
         {collapsed ? (
           <button
             onClick={signOut}
@@ -192,7 +176,6 @@ export function AppSidebar() {
           </button>
         ) : (
           <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] p-2">
-            {/* Avatar */}
             <div className={cn(
               "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
               "bg-gradient-to-br text-white text-xs font-bold shadow-sm",
@@ -200,8 +183,6 @@ export function AppSidebar() {
             )}>
               {initials}
             </div>
-
-            {/* Name + role */}
             <div className="flex-1 min-w-0">
               <p className="truncate text-[12px] font-semibold text-white/90 leading-none mb-0.5">
                 {profile?.full_name || "User"}
@@ -214,8 +195,6 @@ export function AppSidebar() {
                 {ROLE_LABEL[role || "agent"] || "Agent"}
               </p>
             </div>
-
-            {/* Sign out */}
             <button
               onClick={signOut}
               title="Sign out"

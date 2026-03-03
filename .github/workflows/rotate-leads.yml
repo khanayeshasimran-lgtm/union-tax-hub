@@ -14,5 +14,6 @@ jobs:
           curl -X POST \
             https://soxutasiwuligsixlxpk.supabase.co/functions/v1/rotate-leads \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "x-trigger-secret: ${{ secrets.CRON_SECRET }}" \
             -d '{}'

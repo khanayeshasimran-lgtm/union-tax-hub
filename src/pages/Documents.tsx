@@ -53,7 +53,7 @@ function OwnerBadge({ role }: { role: OwnerRole }) {
 }
 
 export default function Documents() {
-  const { user, role } = useAuth();
+const { user, role } = useAuth();
   const { toast } = useToast();
   const isAdmin = role === "admin" || role === "super_admin";
 
@@ -70,87 +70,76 @@ export default function Documents() {
   const [addingDoc, setAddingDoc] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
-  // Track mounted state to prevent memory leaks
   const isMountedRef = useRef(true);
   useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
   }, []);
 
-  // ──────────────────────────────────────────────────────────────────────────────
-  // FIX #1: Extract org lookup to separate function with proper error handling
-  // ──────────────────────────────────────────────────────────────────────────────
+  // ── Org ID helper ────────────────────────────────────────────────────────────
   const getOrgId = async (): Promise<string | null> => {
-    if (!user) {
-      toast({
-        title: "Error",
-        description: "User not authenticated.",
-        variant: "destructive"
-      });
-      return null;
-    }
-
+    if (!user) return null;
     const { data, error } = await supabase
       .from("profiles")
       .select("organization_id")
       .eq("id", user.id)
       .single();
-
-    // FIX: Properly check for error and missing data
-    if (error) {
-      toast({
-        title: "Error retrieving organization",
-        description: error.message,
-        variant: "destructive"
-      });
+    if (error || !data?.organization_id) {
+      toast({ title: "Error", description: "No organization found.", variant: "destructive" });
       return null;
     }
-
-    if (!data || !data.organization_id) {
-      toast({
-        title: "Error",
-        description: "No organization associated with your account.",
-        variant: "destructive"
-      });
-      return null;
-    }
-
     return data.organization_id;
   };
 
-  // ── Load cases ───────────────────────────────────────────────────────────────
+  // ── Inline doc reload ────────────────────────────────────────────────────────
+  const reloadDocs = async (caseId: string) => {
+    const [{ data: req }, { data: up }] = await Promise.all([
+      supabase.from("required_documents").select("*").eq("case_id", caseId),
+      supabase.from("case_documents")
+        .select("*, profiles:uploaded_by(full_name)")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: false }),
+    ]);
+    if (isMountedRef.current) {
+      setRequiredDocs(req || []);
+      setUploadedDocs(up || []);
+    }
+  };
+
+  // ── Load cases (wait for auth) ───────────────────────────────────────────────
   useEffect(() => {
+    if (!user) return;
+
     supabase
       .from("cases")
-      .select("id, leads(full_name), current_stage")
+      .select("id, current_stage, leads(full_name)")
       .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (isMountedRef.current) {
-          setCases(data || []);
-        }
+      .then(({ data, error }) => {
+        if (error) console.error("Cases load error:", error.message);
+        if (isMountedRef.current) setCases(data || []);
       });
-  }, []);
+  }, [user]);
 
-  // ── Fetch docs for selected case ─────────────────────────────────────────────
-  const fetchDocuments = async () => {
+  // ── Fetch docs when case selected ────────────────────────────────────────────
+  useEffect(() => {
     if (!selectedCase) {
       setRequiredDocs([]);
       setUploadedDocs([]);
+      setLoading(false);
       return;
     }
-    setLoading(true);
-    try {
-      const [{ data: req, error: reqErr }, { data: up, error: upErr }] = await Promise.all([
-        supabase.from("required_documents")
-          .select("*")
-          .eq("case_id", selectedCase),
-        supabase.from("case_documents")
-          .select("*, profiles:uploaded_by(full_name)")
-          .eq("case_id", selectedCase)
-          .order("created_at", { ascending: false }),
-      ]);
 
+    let cancelled = false;
+    setLoading(true);
+
+    Promise.all([
+      supabase.from("required_documents").select("*").eq("case_id", selectedCase),
+      supabase.from("case_documents")
+        .select("*, profiles:uploaded_by(full_name)")
+        .eq("case_id", selectedCase)
+        .order("created_at", { ascending: false }),
+    ]).then(([{ data: req, error: reqErr }, { data: up, error: upErr }]) => {
+      if (cancelled) return;
       if (reqErr || upErr) {
         toast({
           title: "Error loading documents",
@@ -158,23 +147,15 @@ export default function Documents() {
           variant: "destructive",
         });
       }
+      setRequiredDocs(req || []);
+      setUploadedDocs(up || []);
+      setLoading(false);
+    });
 
-      if (isMountedRef.current) {
-        setRequiredDocs(req || []);
-        setUploadedDocs(up || []);
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
-    }
-  };
+    return () => { cancelled = true; };
+  }, [selectedCase]);
 
-  useEffect(() => { fetchDocuments(); }, [selectedCase]);
-
-  // ──────────────────────────────────────────────────────────────────────────────
-  // FIX #2 & #3 & #4: Improved upload with proper error handling and cleanup
-  // ──────────────────────────────────────────────────────────────────────────────
+  // ── Upload ───────────────────────────────────────────────────────────────────
   const handleUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     reqDocId?: string
@@ -185,39 +166,31 @@ export default function Documents() {
     setUploading(true);
 
     try {
-      // Get org ID with proper error handling
       const orgId = await getOrgId();
-      if (!orgId) {
-        setUploading(false);
-        return;
-      }
+      if (!orgId) return;
 
-      const path = `${orgId}/${selectedCase}/${Date.now()}_${file.name}`;
+      const safeName = file.name
+        .replace(/[^\w\s.-]/g, "")
+        .replace(/\s+/g, "_")
+        .toLowerCase();
+      const path = `${orgId}/${selectedCase}/${Date.now()}_${safeName}`;
 
-      // Step 1: Upload to storage
       const { error: storageErr } = await supabase.storage
         .from("client-documents")
         .upload(path, file);
 
       if (storageErr) {
-        toast({
-          title: "Upload failed",
-          description: storageErr.message,
-          variant: "destructive"
-        });
-        setUploading(false);
+        toast({ title: "Upload failed", description: storageErr.message, variant: "destructive" });
         return;
       }
 
-      // Step 2: Insert into database
-      // Schema requires: file_name, file_path, and organization_id
       const { error: dbErr } = await supabase.from("case_documents").insert({
-        file_name: file.name,                // ✅ REQUIRED - primary file identifier
-        file_path: path,                     // ✅ REQUIRED - storage bucket path
-        organization_id: orgId,              // ✅ REQUIRED - multi-tenancy
+        file_name: file.name,
+        file_path: path,
+        organization_id: orgId,
         case_id: selectedCase,
         uploaded_by: user.id,
-        document_name: file.name,            // Optional - for UI display
+        document_name: file.name,
         document_type: file.type,
         status: "uploaded",
         is_required: !!reqDocId,
@@ -226,115 +199,70 @@ export default function Documents() {
       });
 
       if (dbErr) {
-        // FIX #4: Clean up orphaned file from storage if DB insert fails
-        await supabase.storage
-          .from("client-documents")
-          .remove([path]);
-
-        toast({
-          title: "Database error",
-          description: dbErr.message,
-          variant: "destructive"
-        });
-        setUploading(false);
+        await supabase.storage.from("client-documents").remove([path]);
+        toast({ title: "Database error", description: dbErr.message, variant: "destructive" });
         return;
       }
 
-      toast({
-        title: "File uploaded successfully",
-        description: file.name
-      });
-
-      await fetchDocuments();
-
-      // Clear file input properly using ref
+      toast({ title: "File uploaded successfully", description: file.name });
+      await reloadDocs(selectedCase);
       e.target.value = "";
     } finally {
-      if (isMountedRef.current) {
-        setUploading(false);
-      }
+      if (isMountedRef.current) setUploading(false);
     }
   };
 
-  // ── Download via signed URL ──────────────────────────────────────────────────
+  // ── Download ─────────────────────────────────────────────────────────────────
   const handleDownload = async (doc: any) => {
     const path = doc.storage_path || doc.file_path;
     if (!path) {
-      toast({
-        title: "No file path",
-        description: "This document has no storage path attached.",
-        variant: "destructive",
-      });
+      toast({ title: "No file path", description: "This document has no storage path.", variant: "destructive" });
       return;
     }
-
     setDownloading(doc.id);
-
     try {
       const { data, error } = await supabase.storage
         .from("client-documents")
         .createSignedUrl(path, 60);
 
       if (error || !data?.signedUrl) {
-        toast({
-          title: "Download failed",
-          description: error?.message || "Could not generate download link.",
-          variant: "destructive",
-        });
+        toast({ title: "Download failed", description: error?.message || "Could not generate link.", variant: "destructive" });
         return;
       }
-
       window.open(data.signedUrl, "_blank");
-      toast({
-        title: "Opening file",
-        description: doc.document_name || doc.file_name || "File",
-      });
+      toast({ title: "Opening file", description: doc.document_name || doc.file_name || "File" });
     } finally {
-      if (isMountedRef.current) {
-        setDownloading(null);
-      }
+      if (isMountedRef.current) setDownloading(null);
     }
   };
 
-  // ── Update doc status (admin only) ──────────────────────────────────────────
+  // ── Update status ────────────────────────────────────────────────────────────
   const updateStatus = async (docId: string, status: DocStatus) => {
     setUpdatingStatus(docId);
     try {
-      const { error } = await supabase.from("case_documents")
+      const { error } = await supabase
+        .from("case_documents")
         .update({ status })
         .eq("id", docId);
 
       if (error) {
-        toast({
-          title: "Error",
-          description: error.message,
-          variant: "destructive"
-        });
+        toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
         toast({ title: `Document marked ${status}` });
-        await fetchDocuments();
+        await reloadDocs(selectedCase);
       }
     } finally {
-      if (isMountedRef.current) {
-        setUpdatingStatus(null);
-      }
+      if (isMountedRef.current) setUpdatingStatus(null);
     }
   };
 
-  // ──────────────────────────────────────────────────────────────────────────────
-  // FIX #1 (part 2): Improved add required document with error handling
-  // ──────────────────────────────────────────────────────────────────────────────
+  // ── Add required doc ─────────────────────────────────────────────────────────
   const handleAddRequired = async () => {
     if (!newDocName.trim() || !selectedCase || !user) return;
     setAddingDoc(true);
-
     try {
-      // Get org ID with proper error handling
       const orgId = await getOrgId();
-      if (!orgId) {
-        setAddingDoc(false);
-        return;
-      }
+      if (!orgId) return;
 
       const { error } = await supabase.from("required_documents").insert({
         case_id: selectedCase,
@@ -344,21 +272,15 @@ export default function Documents() {
       });
 
       if (error) {
-        toast({
-          title: "Error",
-          description: error.message,
-          variant: "destructive"
-        });
+        toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
         toast({ title: "Required document added" });
         setNewDocName("");
         setShowAddReq(false);
-        await fetchDocuments();
+        await reloadDocs(selectedCase);
       }
     } finally {
-      if (isMountedRef.current) {
-        setAddingDoc(false);
-      }
+      if (isMountedRef.current) setAddingDoc(false);
     }
   };
 
@@ -371,10 +293,9 @@ export default function Documents() {
   const missingDocs = requiredDocs.filter((rd) => !approvedDocIds.has(rd.id));
   const missingCount = missingDocs.length;
   const totalRequired = requiredDocs.length;
-  const completionPct =
-    totalRequired > 0
-      ? Math.round(((totalRequired - missingCount) / totalRequired) * 100)
-      : 0;
+  const completionPct = totalRequired > 0
+    ? Math.round(((totalRequired - missingCount) / totalRequired) * 100)
+    : 0;
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -400,16 +321,12 @@ export default function Documents() {
         {selectedCase && totalRequired > 0 && (
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {totalRequired - missingCount} of {totalRequired} required docs received
-              </span>
+              <span>{totalRequired - missingCount} of {totalRequired} required docs received</span>
               <span className="font-semibold text-foreground">{completionPct}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className={`h-full rounded-full transition-all ${
-                  completionPct === 100 ? "bg-green-500" : "bg-primary"
-                }`}
+                className={`h-full rounded-full transition-all ${completionPct === 100 ? "bg-green-500" : "bg-primary"}`}
                 style={{ width: `${completionPct}%` }}
               />
             </div>
@@ -444,7 +361,7 @@ export default function Documents() {
         </div>
       )}
 
-      {/* ── Empty state ──────────────────────────────────────────────────────── */}
+      {/* ── Empty / Loading / Content ────────────────────────────────────────── */}
       {!selectedCase ? (
         <div className="kpi-card flex flex-col items-center justify-center py-16">
           <FileText className="mb-3 h-10 w-10 opacity-30 text-muted-foreground" />
@@ -479,9 +396,7 @@ export default function Documents() {
                           value={newDocName}
                           onChange={(e) => setNewDocName(e.target.value)}
                           placeholder="e.g. W-2 Form 2024"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAddRequired();
-                          }}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleAddRequired(); }}
                           disabled={addingDoc}
                         />
                       </div>
@@ -501,40 +416,30 @@ export default function Documents() {
 
             {requiredDocs.length === 0 ? (
               <p className="py-6 text-center text-xs text-muted-foreground">
-                No required documents defined
-                {isAdmin && " — click Add to create one"}
+                No required documents defined{isAdmin && " — click Add to create one"}
               </p>
             ) : (
               requiredDocs.map((doc: any) => {
                 const isReceived = approvedDocIds.has(doc.id);
-                const matched = uploadedDocs.find(
-                  (u) => u.required_document_id === doc.id
-                );
+                const matched = uploadedDocs.find((u) => u.required_document_id === doc.id);
                 return (
                   <div
                     key={doc.id}
                     className={`flex items-center justify-between rounded-lg border p-3 ${
-                      isReceived
-                        ? "border-green-200 bg-green-50"
-                        : "border-border bg-muted/20"
+                      isReceived ? "border-green-200 bg-green-50" : "border-border bg-muted/20"
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      {isReceived ? (
-                        <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-green-600" />
-                      ) : (
-                        <XCircle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      )}
+                      {isReceived
+                        ? <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-green-600" />
+                        : <XCircle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{doc.document_name}</p>
                         {matched && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {matched.document_name}
-                          </p>
+                          <p className="text-xs text-muted-foreground truncate">{matched.document_name}</p>
                         )}
                       </div>
                     </div>
-
                     <div className="flex items-center gap-2 ml-2 flex-shrink-0">
                       {matched && <DocStatusBadge status={matched.status} />}
                       {matched && (
@@ -542,7 +447,6 @@ export default function Documents() {
                           onClick={() => handleDownload(matched)}
                           disabled={downloading === matched.id}
                           className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                          title="Download file"
                           aria-label="Download document"
                         >
                           {downloading === matched.id
@@ -551,20 +455,16 @@ export default function Documents() {
                         </button>
                       )}
                       {!isReceived && (
-                        <label className="cursor-pointer inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors disabled:opacity-50"
-                          aria-label="Upload required document">
-                          {uploading ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Upload className="h-3 w-3" />
-                          )}
+                        <label className="cursor-pointer inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors">
+                          {uploading
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Upload className="h-3 w-3" />}
                           Upload
                           <input
                             type="file"
                             className="hidden"
                             onChange={(e) => handleUpload(e, doc.id)}
                             disabled={uploading}
-                            aria-label={`Upload ${doc.document_name}`}
                           />
                         </label>
                       )}
@@ -578,49 +478,30 @@ export default function Documents() {
           {/* ── All Uploaded Documents ───────────────────────────────────── */}
           <div className="kpi-card space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">
-                All Uploads ({uploadedDocs.length})
-              </h3>
-              <label
-                className={`inline-flex items-center gap-1 cursor-pointer rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors ${
-                  uploading ? "opacity-50 pointer-events-none" : ""
-                }`}
-                aria-label="Upload new document"
-              >
-                {uploading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Upload className="h-3 w-3" />
-                )}
+              <h3 className="text-sm font-semibold">All Uploads ({uploadedDocs.length})</h3>
+              <label className={`inline-flex items-center gap-1 cursor-pointer rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                {uploading
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Upload className="h-3 w-3" />}
                 Upload New
                 <input
                   type="file"
                   className="hidden"
                   onChange={(e) => handleUpload(e)}
                   disabled={uploading}
-                  aria-label="Upload new document file"
                 />
               </label>
             </div>
 
             {uploadedDocs.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                No files uploaded yet
-              </p>
+              <p className="py-6 text-center text-xs text-muted-foreground">No files uploaded yet</p>
             ) : (
               uploadedDocs.map((doc: any) => (
-                <div
-                  key={doc.id}
-                  className="rounded-lg border border-border bg-muted/10"
-                >
-                  {/* ── Collapsed row ── */}
+                <div key={doc.id} className="rounded-lg border border-border bg-muted/10">
                   <button
                     className="flex w-full items-center justify-between p-3 text-left hover:bg-muted/5 transition-colors"
-                    onClick={() =>
-                      setExpandedDoc(expandedDoc === doc.id ? null : doc.id)
-                    }
+                    onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
                     aria-expanded={expandedDoc === doc.id}
-                    aria-label={`${expandedDoc === doc.id ? 'Collapse' : 'Expand'} ${doc.document_name || doc.file_name}`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
@@ -630,19 +511,14 @@ export default function Documents() {
                     </div>
                     <div className="flex items-center gap-2 ml-2 flex-shrink-0">
                       <DocStatusBadge status={doc.status} />
-                      {expandedDoc === doc.id ? (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      )}
+                      {expandedDoc === doc.id
+                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </div>
                   </button>
 
-                  {/* ── Expanded row ── */}
                   {expandedDoc === doc.id && (
                     <div className="border-t px-3 py-3 space-y-3">
-
-                      {/* Meta row */}
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>
                           By:{" "}
@@ -652,27 +528,21 @@ export default function Documents() {
                         </span>
                         <OwnerBadge role={doc.owner_role || doc.owner_type || "agent"} />
                       </div>
-
                       <p className="text-xs text-muted-foreground">
                         {new Date(doc.created_at).toLocaleString()}
                       </p>
 
-                      {/* ── Download button ── */}
                       <button
                         onClick={() => handleDownload(doc)}
                         disabled={downloading === doc.id}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                        aria-label="Download or view file"
                       >
-                        {downloading === doc.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Download className="h-3.5 w-3.5" />
-                        )}
+                        {downloading === doc.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Download className="h-3.5 w-3.5" />}
                         {downloading === doc.id ? "Generating link..." : "Download / View File"}
                       </button>
 
-                      {/* ── Admin action buttons ── */}
                       {isAdmin && doc.status !== "approved" && (
                         <div className="flex gap-2 pt-1 flex-wrap">
                           {doc.status === "uploaded" && (
@@ -709,7 +579,6 @@ export default function Documents() {
                         </div>
                       )}
 
-                      {/* Re-open rejected */}
                       {doc.status === "rejected" && isAdmin && (
                         <Button
                           size="sm"
@@ -723,7 +592,6 @@ export default function Documents() {
                         </Button>
                       )}
 
-                      {/* Non-admin status message */}
                       {!isAdmin && (
                         <p className="text-xs text-muted-foreground">
                           {doc.status === "rejected"
@@ -741,6 +609,7 @@ export default function Documents() {
               ))
             )}
           </div>
+
         </div>
       )}
     </div>

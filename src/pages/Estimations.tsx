@@ -61,16 +61,16 @@ export default function Estimations() {
   const fetchData = async () => {
     setLoading(true);
     const [estRes, caseRes, intakeRes] = await Promise.all([
-      supabase.from("estimations")
-        .select("*, cases(current_stage, leads(full_name)), profiles:approved_by(full_name)")
+supabase.from("estimations")
+  .select("*, cases(current_stage, leads(full_name))")
         .order("created_at", { ascending: false }),
       supabase
         .from("cases")
         .select("id, current_stage, leads(full_name)")
         .eq("current_stage", "Intake Submitted"),
-         supabase.from("estimations")
-        .select("id, full_legal_name, filing_status, w2_income, form_1099_income, business_income")
-        .order("created_at", { ascending: false }),
+supabase.from("client_intake")
+  .select("id, full_legal_name, filing_status, w2_income, form_1099_income, business_income")
+  .order("created_at", { ascending: false }),
     ]);
     setEstimations(estRes.data || []);
     setCases(caseRes.data || []);

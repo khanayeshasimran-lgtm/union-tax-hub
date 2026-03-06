@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Phone, CalendarClock, Briefcase, DollarSign,
   Trophy, FileSearch, Settings, LogOut, Building2, ChevronLeft, FileText,
-  ChevronRight, ClipboardList, ClipboardCheck
+  ChevronRight, ClipboardList, ClipboardCheck, TrendingDown, Sparkles
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -31,8 +31,13 @@ const adminMenu = [
   { label: "Revenue",      icon: DollarSign,      to: "/revenue" },
   { label: "Leaderboard",  icon: Trophy,          to: "/leaderboard" },
   { label: "Documents",    icon: FileText,        to: "/documents" },
+  { label: "Rejections",   icon: TrendingDown,    to: "/rejections" },
   { label: "Audit Trail",  icon: FileSearch,      to: "/audit" },
   { label: "Settings",     icon: Settings,        to: "/settings" },
+];
+
+const clientMenu = [
+  { label: "My Case", icon: Briefcase, to: "/portal" },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -43,66 +48,78 @@ const ROLE_LABEL: Record<string, string> = {
   client:        "Client",
 };
 
-const ROLE_COLOR: Record<string, string> = {
-  super_admin:   "from-amber-400 to-orange-400",
-  admin:         "from-violet-400 to-indigo-400",
-  agent:         "from-sky-400 to-cyan-400",
-  tax_processor: "from-emerald-400 to-teal-400",
-  client:        "from-pink-400 to-rose-400",
+const ROLE_GRADIENT: Record<string, { from: string; to: string }> = {
+  super_admin:   { from: "from-amber-400", to: "to-orange-500" },
+  admin:         { from: "from-blue-400", to: "to-emerald-600" },
+  agent:         { from: "from-emerald-400", to: "to-teal-600" },
+  tax_processor: { from: "from-cyan-400", to: "to-blue-600" },
+  client:        { from: "from-pink-400", to: "to-rose-500" },
 };
 
 export function AppSidebar() {
   const { role, profile, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  const menu = role === "admin" || role === "super_admin" ? adminMenu : agentMenu;
+  const menu = (role === "admin" || role === "super_admin")
+    ? adminMenu
+    : (role as string) === "client"
+    ? clientMenu
+    : agentMenu;
+
   const initials = profile?.full_name
     ?.split(" ")
     .map((w) => w[0])
     .slice(0, 2)
     .join("")
     .toUpperCase() || "U";
-  const gradientClass = ROLE_COLOR[role || "agent"] || ROLE_COLOR.agent;
+
+  const roleGradient = ROLE_GRADIENT[role || "agent"] || ROLE_GRADIENT.agent;
 
   return (
     <aside
       className={cn(
-        "relative flex flex-col h-screen border-r border-white/[0.06] transition-all duration-300 ease-in-out",
-        "bg-[#0d1117]",
-        collapsed ? "w-[68px]" : "w-[232px]"
+        "relative flex flex-col h-screen transition-all duration-300 ease-in-out",
+        "border-r border-gray-200",
+        "bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950",
+        collapsed ? "w-[72px]" : "w-[260px]"
       )}
-      style={{
-        backgroundImage: "radial-gradient(ellipse at 20% 0%, rgba(99,102,241,0.08) 0%, transparent 60%)",
-      }}
     >
-      {/* ── Logo ──────────────────────────────────────────────────────────────── */}
+      {/* Subtle gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/5 via-transparent to-emerald-950/5 pointer-events-none" />
+
+      {/* ── Logo & Branding ──────────────────────────────────────────────────── */}
       <div className={cn(
-        "flex h-[60px] items-center border-b border-white/[0.06]",
-        collapsed ? "justify-center px-0" : "px-4 gap-3"
+        "relative z-10 flex h-[68px] items-center border-b border-gray-800 backdrop-blur-sm",
+        collapsed ? "justify-center px-2" : "px-4 gap-3"
       )}>
-        <div className="flex items-center justify-center rounded-xl shrink-0 h-8 w-8 bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
-          <Building2 className="h-4 w-4 text-white" />
+        <div className="relative flex-shrink-0">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-emerald-600 rounded-xl blur-lg opacity-70" />
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-blue-600 to-emerald-600 shadow-xl shadow-blue-500/40">
+            <Building2 className="h-6 w-6 text-white" />
+          </div>
         </div>
+
         {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-white tracking-wide leading-none">
-              Union Tax
-            </p>
-            <p className="text-[10px] text-white/30 mt-0.5 tracking-widest uppercase">
-              Operations
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-1">
+              <p className="text-sm font-bold text-white tracking-tight">Union</p>
+              <p className="text-sm font-light text-blue-200">Tax</p>
+            </div>
+            <p className="text-[9px] text-gray-400 tracking-widest uppercase mt-0.5">Platform</p>
           </div>
         )}
+
+        <Sparkles className="absolute right-2 h-3 w-3 text-blue-400/40" />
       </div>
 
       {/* ── Collapse toggle ────────────────────────────────────────────────────── */}
       <button
         onClick={() => setCollapsed(!collapsed)}
         className={cn(
-          "absolute -right-3 top-[72px] z-10",
+          "absolute -right-3 top-[82px] z-20",
           "flex h-6 w-6 items-center justify-center rounded-full",
-          "bg-[#1c2333] border border-white/10 shadow-lg",
-          "text-white/40 hover:text-white/80 transition-colors"
+          "bg-white border-2 border-gray-300 shadow-lg",
+          "text-gray-700 hover:text-gray-900 hover:bg-gray-50 transition-all duration-200 hover:scale-110"
         )}
       >
         {collapsed
@@ -111,36 +128,40 @@ export function AppSidebar() {
       </button>
 
       {/* ── Navigation ────────────────────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 space-y-0.5 scrollbar-none">
-        {menu.map((item) => (
+      <nav className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden py-4 px-2.5 space-y-1 scrollbar-none">
+        {menu.map((item, idx) => (
           <NavLink
             key={item.to + item.label}
             to={item.to}
-            end={"end" in item ? item.end : false}
+            end={"end" in item ? (item.end as boolean) : false}
             className={({ isActive }) =>
               cn(
-                "group relative flex items-center rounded-lg transition-all duration-150",
-                collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 h-9",
+                "group relative flex items-center rounded-lg transition-all duration-200",
+                collapsed ? "justify-center h-11 w-11 mx-auto" : "gap-3 px-3.5 h-10",
                 isActive
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/40 hover:text-white/80 hover:bg-white/[0.04]"
+                  ? "bg-gradient-to-r from-blue-600/30 to-emerald-600/30 border border-blue-500/50 text-blue-100 shadow-lg shadow-blue-600/20"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
               )
             }
           >
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-indigo-400" />
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 rounded-r-full bg-gradient-to-b from-blue-400 to-emerald-500 shadow-lg shadow-blue-500/60" />
                 )}
-                <item.icon className={cn(
-                  "shrink-0 transition-all duration-150",
-                  collapsed ? "h-[18px] w-[18px]" : "h-4 w-4",
-                  isActive ? "text-indigo-400" : ""
-                )} />
+                <div className={cn(
+                  "relative transition-all duration-200",
+                  isActive ? "text-blue-300" : "text-gray-500 group-hover:text-gray-300"
+                )}>
+                  <item.icon className={cn(
+                    "transition-all duration-200",
+                    collapsed ? "h-5 w-5" : "h-4 w-4",
+                  )} />
+                </div>
                 {!collapsed && (
                   <span className={cn(
-                    "text-[13px] font-medium tracking-tight truncate",
-                    isActive ? "text-white" : ""
+                    "text-sm font-medium tracking-tight transition-colors duration-200",
+                    isActive ? "text-white font-semibold" : "text-gray-400"
                   )}>
                     {item.label}
                   </span>
@@ -148,9 +169,9 @@ export function AppSidebar() {
                 {collapsed && (
                   <span className={cn(
                     "pointer-events-none absolute left-full ml-3 z-50",
-                    "whitespace-nowrap rounded-md bg-[#1c2333] border border-white/10",
-                    "px-2.5 py-1.5 text-xs font-medium text-white shadow-xl",
-                    "opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    "whitespace-nowrap rounded-lg bg-gradient-to-r from-gray-800 to-slate-900 border border-gray-700",
+                    "px-3 py-1.5 text-xs font-medium text-gray-100 shadow-xl backdrop-blur-sm",
+                    "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                   )}>
                     {item.label}
                   </span>
@@ -162,46 +183,48 @@ export function AppSidebar() {
       </nav>
 
       {/* ── Divider ───────────────────────────────────────────────────────────── */}
-      <div className="mx-3 h-px bg-white/[0.06]" />
+      <div className="relative z-10 mx-3 h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
 
-      {/* ── User footer ───────────────────────────────────────────────────────── */}
-      <div className={cn("p-3", collapsed ? "flex justify-center" : "")}>
+      {/* ── User Footer ───────────────────────────────────────────────────────── */}
+      <div className={cn("relative z-10 p-3", collapsed ? "flex justify-center" : "")}>
         {collapsed ? (
           <button
             onClick={signOut}
             title="Sign out"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-colors"
+            className="group relative flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-all duration-200"
           >
             <LogOut className="h-4 w-4" />
           </button>
         ) : (
-          <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] p-2">
-            <div className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-              "bg-gradient-to-br text-white text-xs font-bold shadow-sm",
-              gradientClass
-            )}>
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-[12px] font-semibold text-white/90 leading-none mb-0.5">
-                {profile?.full_name || "User"}
-              </p>
-              <p className={cn(
-                "text-[10px] font-medium tracking-wide",
-                "bg-gradient-to-r bg-clip-text text-transparent",
-                gradientClass
+          <div className="rounded-lg bg-gradient-to-r from-gray-800/50 to-gray-900/30 border border-gray-700 p-3 backdrop-blur-sm hover:border-gray-600 hover:from-gray-800/70 transition-all duration-200">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                "bg-gradient-to-br text-white text-xs font-bold shadow-lg",
+                `${roleGradient.from} ${roleGradient.to}`
               )}>
-                {ROLE_LABEL[role || "agent"] || "Agent"}
-              </p>
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="truncate text-xs font-semibold text-white leading-tight">
+                  {profile?.full_name || "User"}
+                </p>
+                <p className={cn(
+                  "text-[10px] font-medium tracking-wide mt-1",
+                  "bg-gradient-to-r bg-clip-text text-transparent",
+                  `${roleGradient.from} ${roleGradient.to}`
+                )}>
+                  {ROLE_LABEL[role || "agent"] || "Agent"}
+                </p>
+              </div>
+              <button
+                onClick={signOut}
+                title="Sign out"
+                className="rounded-md p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-700/50 transition-all duration-200"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <button
-              onClick={signOut}
-              title="Sign out"
-              className="rounded-md p-1 text-white/20 hover:text-white/60 hover:bg-white/[0.05] transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </button>
           </div>
         )}
       </div>

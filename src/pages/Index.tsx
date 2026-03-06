@@ -4,16 +4,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 
 const Index = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (loading) return; // ← wait for auth to resolve
     if (user) {
       navigate("/dashboard", { replace: true });
     } else {
       navigate("/auth", { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, loading, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">

@@ -22,14 +22,19 @@ import NotFound from "./pages/NotFound";
 import Documents from "./pages/Documents";
 import ClientIntake from "./pages/ClientIntake";
 import Estimations from "./pages/Estimations";
+import RejectionAnalytics from "./pages/RejectionAnalytics";
+import ClientPortal from "./pages/ClientPortal";
 
 const queryClient = new QueryClient();
 
-// ── Auth guard — redirects to /auth if not logged in ─────────────────────────
+// ── Auth guard ────────────────────────────────────────────────────────────────
+// Only show full-screen spinner if we have NO user and are still loading.
+// If we already have a user, render immediately — profile loads in background.
 function ProtectedRoute({ children, label }: { children: React.ReactNode; label: string }) {
   const { user, loading } = useAuth();
 
-  if (loading) {
+  // Still checking auth and no user yet — show spinner
+  if (loading && !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -37,8 +42,10 @@ function ProtectedRoute({ children, label }: { children: React.ReactNode; label:
     );
   }
 
-  if (!user) return <Navigate to="/auth" replace />;
+  // Auth resolved, no user — redirect to login
+  if (!loading && !user) return <Navigate to="/auth" replace />;
 
+  // User exists (with or without profile loaded) — render page
   return (
     <AppLayout>
       <ErrorBoundary label={label}>
@@ -48,11 +55,11 @@ function ProtectedRoute({ children, label }: { children: React.ReactNode; label:
   );
 }
 
-// ── Auth page — redirects to / if already logged in ──────────────────────────
+// ── Auth page ─────────────────────────────────────────────────────────────────
 function AuthRoute() {
   const { user, loading } = useAuth();
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -77,50 +84,24 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          {/* Top-level boundary catches anything ErrorBoundary misses */}
-          <ErrorBoundary label="Application">
-            <Routes>
-              <Route path="/auth" element={<AuthRoute />} />
-
-              <Route path="/"
-                element={<ProtectedRoute label="Dashboard"><Dashboard /></ProtectedRoute>} />
-
-              <Route path="/leads"
-                element={<ProtectedRoute label="Leads"><Leads /></ProtectedRoute>} />
-
-              <Route path="/calls"
-                element={<ProtectedRoute label="Call Queue"><CallWorkflow /></ProtectedRoute>} />
-
-              <Route path="/followups"
-                element={<ProtectedRoute label="Follow-Ups"><FollowUps /></ProtectedRoute>} />
-
-              <Route path="/cases"
-                element={<ProtectedRoute label="Cases"><Cases /></ProtectedRoute>} />
-
-              <Route path="/intake"
-                element={<ProtectedRoute label="Client Intake"><ClientIntake /></ProtectedRoute>} />
-
-              <Route path="/estimations"
-                element={<ProtectedRoute label="Estimations"><Estimations /></ProtectedRoute>} />
-
-              <Route path="/documents"
-                element={<ProtectedRoute label="Documents"><Documents /></ProtectedRoute>} />
-
-              <Route path="/revenue"
-                element={<ProtectedRoute label="Revenue"><Revenue /></ProtectedRoute>} />
-
-              <Route path="/leaderboard"
-                element={<ProtectedRoute label="Leaderboard"><Leaderboard /></ProtectedRoute>} />
-
-              <Route path="/audit"
-                element={<ProtectedRoute label="Audit Trail"><AuditTrail /></ProtectedRoute>} />
-
-              <Route path="/settings"
-                element={<ProtectedRoute label="Settings"><SettingsPage /></ProtectedRoute>} />
-
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </ErrorBoundary>
+          <Routes>
+            <Route path="/auth" element={<AuthRoute />} />
+            <Route path="/" element={<ProtectedRoute label="Dashboard"><Dashboard /></ProtectedRoute>} />
+            <Route path="/leads" element={<ProtectedRoute label="Leads"><Leads /></ProtectedRoute>} />
+            <Route path="/calls" element={<ProtectedRoute label="Call Queue"><CallWorkflow /></ProtectedRoute>} />
+            <Route path="/followups" element={<ProtectedRoute label="Follow-Ups"><FollowUps /></ProtectedRoute>} />
+            <Route path="/cases" element={<ProtectedRoute label="Cases"><Cases /></ProtectedRoute>} />
+            <Route path="/intake" element={<ProtectedRoute label="Client Intake"><ClientIntake /></ProtectedRoute>} />
+            <Route path="/estimations" element={<ProtectedRoute label="Estimations"><Estimations /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute label="Documents"><Documents /></ProtectedRoute>} />
+            <Route path="/revenue" element={<ProtectedRoute label="Revenue"><Revenue /></ProtectedRoute>} />
+            <Route path="/leaderboard" element={<ProtectedRoute label="Leaderboard"><Leaderboard /></ProtectedRoute>} />
+            <Route path="/audit" element={<ProtectedRoute label="Audit Trail"><AuditTrail /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute label="Settings"><SettingsPage /></ProtectedRoute>} />
+            <Route path="/portal" element={<ProtectedRoute label="Client Portal"><ClientPortal /></ProtectedRoute>} />
+            <Route path="/rejections" element={<ProtectedRoute label="Rejection Analytics"><RejectionAnalytics /></ProtectedRoute>} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

@@ -1,73 +1,213 @@
-# Welcome to your Lovable project
+# Union Tax Hub
 
-## Project info
+A full-stack internal operations platform for tax firms — managing leads, client cases, document pipelines, revenue tracking, and team performance from a single interface.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+---
 
-## How can I edit this code?
+## Overview
 
-There are several ways of editing your application.
+Union Tax Hub is built for tax operations teams who need a unified system to handle the full client lifecycle: from initial lead capture through call workflows, client intake, case management, document collection, estimation approval, and revenue tracking.
 
-**Use Lovable**
+Every feature is multi-tenant, role-aware, and audit-logged out of the box.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## Features
 
-**Use your preferred IDE**
+### Lead & Call Management
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+* Lead assignment with round-robin rotation engine
+* Call disposition logging with attempt tracking
+* Automated retry scheduling for unanswered leads
+* CSV import with preview and validation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Case Pipeline
 
-Follow these steps:
+* 7-stage Kanban board (New → Converted → Intake Submitted → File Received → Estimation Approved → In Progress → Completed)
+* Drag-and-drop stage transitions
+* Stage history tracking with timestamps
+* Pipeline bottleneck analytics
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
+### Client Intake & Estimations
+
+* Multi-section intake form with SSN masking
+* Automatic case stage advancement on intake submission
+* Admin estimation approval / rejection workflow with reason logging
+
+### Document Center
+
+* Per-case required document checklists
+* File upload with organization-scoped storage paths
+* Per-document approval workflow (Uploaded → Under Review → Approved / Rejected)
+* Signed URL downloads (60-second expiry)
+* Automatic case progression when all documents are approved
+
+### Revenue Tracking
+
+* Revenue entry per case with payment method tracking
+* 24-hour lock enforcement via database trigger
+* Admin override for locked entries
+* Pipeline stage correlation
+
+### Team & Leaderboard
+
+* Revenue, productivity, and conversion leaderboards
+* Agent performance KPI cards
+* Daily leaderboard refresh via scheduled cron job
+
+### Audit Trail
+
+* Immutable audit logs on all critical tables
+* Before/after JSONB snapshots on every change
+* Full explorer with filters, date range, and CSV export
+
+### Follow-Ups
+
+* Priority color-coded follow-up queue
+* Overdue detection with automated marking
+* Status filter tabs and CSV import
+
+---
+
+## Tech Stack
+
+| Layer    | Technology                                              |
+| -------- | ------------------------------------------------------- |
+| Frontend | React 18, TypeScript, Vite                              |
+| UI       | shadcn/ui, Tailwind CSS                                 |
+| Backend  | Supabase (PostgreSQL + Auth + Storage + Edge Functions) |
+| State    | TanStack Query                                          |
+| Routing  | React Router v6                                         |
+
+---
+
+## Database Architecture
+
+* **17 tables** with full row-level security (RLS)
+* **35+ RLS policies** enforcing organization-scoped data isolation
+* **17 triggers** for business logic automation
+* **15 database functions** (SECURITY DEFINER)
+* **13 views** including materialized leaderboard
+* **37 indexes** including partial indexes on critical query patterns
+* Realtime subscriptions on leads, cases, follow-ups, and revenue
+
+---
+
+## Roles
+
+| Role            | Access                                      |
+| --------------- | ------------------------------------------- |
+| `super_admin`   | Full system access across all organizations |
+| `admin`         | Full access within their organization       |
+| `agent`         | Own leads, assigned cases, follow-ups       |
+| `tax_processor` | Case processing and document review         |
+| `client`        | Client portal (own documents only)          |
+
+New signups default to `agent`. Admins can promote users via the Settings page or directly in the database.
+
+---
+
+## Local Development
+
+**Requirements:** Node.js 18+, npm
+
+```bash
+# Clone the repository
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Install dependencies
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The application runs at:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```
+http://localhost:8080
+```
 
-**Use GitHub Codespaces**
+---
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Environment Configuration
 
-## What technologies are used for this project?
+This project connects to a Supabase backend.
 
-This project is built with:
+Configure the following environment variables:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
 
-## How can I deploy this project?
+These values are used in:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```
+src/integrations/supabase/client.ts
+```
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## Deployment
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+The application can be deployed on any modern frontend hosting platform such as:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+* Vercel
+* Netlify
+* Cloudflare Pages
+* AWS Amplify
+
+Build the project:
+
+```bash
+npm run build
+```
+
+Preview production build locally:
+
+```bash
+npm run preview
+```
+
+---
+
+## Automation
+
+Three scheduled cron jobs are used for system automation:
+
+* **02:00 AM UTC daily** — Rotates overdue leads to least-loaded agents
+* **Every hour** — Marks overdue follow-ups
+* **Daily** — Refreshes materialized leaderboard view
+
+---
+
+## Project Structure
+
+```
+src/
+├── components/        # Shared UI components
+│   ├── AppLayout.tsx
+│   ├── AppSidebar.tsx
+│   └── ErrorBoundary.tsx
+├── hooks/
+│   └── useAuth.ts     # Auth context with role/profile loading
+├── integrations/
+│   └── supabase/      # Supabase client and type definitions
+├── pages/             # One file per route
+│   ├── Dashboard.tsx
+│   ├── Leads.tsx
+│   ├── CallWorkflow.tsx
+│   ├── FollowUps.tsx
+│   ├── Cases.tsx
+│   ├── ClientIntake.tsx
+│   ├── Estimations.tsx
+│   ├── Documents.tsx
+│   ├── Revenue.tsx
+│   ├── Leaderboard.tsx
+│   ├── AuditTrail.tsx
+│   ├── Settings.tsx
+│   └── Auth.tsx
+└── App.tsx            # Routes and authentication guards
+```

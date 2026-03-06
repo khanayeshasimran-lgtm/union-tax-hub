@@ -33,65 +33,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // ── Single source of truth: profiles table holds BOTH role and profile info ──
-  const fetchUserData = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("full_name, organization_id, role")
-        .eq("id", userId)
-        .single();
-if (error) {
-  console.error("useAuth: profile fetch failed:", error.message);
-  setRole(null);
-  setProfile(null);
-  return;
-}
-      if (data) {
-        setRole(data.role as AppRole);
-        setProfile({
-          full_name: data.full_name,
-          organization_id: data.organization_id,
-          role: data.role as AppRole,
-        });
-      }
-    } catch (err) {
-      console.error("useAuth: unexpected error:", err);
-      setRole(null);
-      setProfile(null);
+const fetchUserData = async (userId: string) => {
+  try {
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+    
+    const fetch = supabase
+      .from("profiles")
+      .select("full_name, organization_id, role")
+      .eq("id", userId)
+      .single()
+      .then(({ data }) => data);
+
+    const data = await Promise.race([fetch, timeout]);
+
+    if (data) {
+      setRole((data as any).role as AppRole);
+      setProfile({
+        full_name: (data as any).full_name,
+        organization_id: (data as any).organization_id,
+        role: (data as any).role as AppRole,
+      });
     }
-  };
+  } catch (err) {
+    console.error("useAuth: unexpected error:", err);
+    setRole(null);
+    setProfile(null);
+  }
+};
 
   useEffect(() => {
-    // 1. Get initial session immediately
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserData(session.user.id).finally(() => setLoading(false));
-      } else {
+    let initialDone = false;
+
+    // onAuthStateChange fires immediately on mount with current session —
+    // this replaces getSession() and avoids the race condition where
+    // initialDone is still false when the listener fires.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (!initialDone) {
+          // First fire — this IS the initial session, handle it here
+          initialDone = true;
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            await fetchUserData(session.user.id);
+          }
+          setLoading(false);
+          return;
+        }
+
+        // Subsequent auth changes (login, logout, token refresh)
+        setLoading(true);
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserData(session.user.id);
+        } else {
+          setRole(null);
+          setProfile(null);
+        }
         setLoading(false);
       }
-    });
+    );
 
-    // 2. Listen for login/logout/token refresh
-const { data: { subscription } } = supabase.auth.onAuthStateChange(
-  async (_event, session) => {
-    setLoading(true);
-
-    setSession(session);
-    setUser(session?.user ?? null);
-
-    if (session?.user) {
-      await fetchUserData(session.user.id);
-    } else {
-      setRole(null);
-      setProfile(null);
-    }
-
-    setLoading(false);
-  }
-);
     return () => subscription.unsubscribe();
   }, []);
 

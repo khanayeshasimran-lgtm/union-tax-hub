@@ -88,14 +88,12 @@ export default function SettingsPage() {
       });
       return;
     }
-
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, role, department, organization_id")
       .eq("organization_id", orgId)
       .order("full_name");
-
     if (error) {
       toast({ title: "Failed to load team", description: error.message, variant: "destructive" });
     } else {
@@ -116,6 +114,10 @@ export default function SettingsPage() {
     }
 
     setUpdatingRole(memberId);
+
+    const member = teamMembers.find((m) => m.id === memberId);
+    const oldRole = member?.role;
+
     const { error } = await supabase
       .from("profiles")
       .update({ role: newRole })
@@ -124,7 +126,17 @@ export default function SettingsPage() {
     if (error) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Role updated", description: `Role changed to ${newRole}` });
+      // ── Write to audit trail ─────────────────────────────────────────────
+      await supabase.from("audit_logs").insert({
+        user_id: user?.id,
+        action_type: "UPDATE",
+        entity_type: "profiles",
+        entity_id: memberId,
+        previous_value: { role: oldRole, full_name: member?.full_name },
+        new_value: { role: newRole, full_name: member?.full_name },
+      });
+
+      toast({ title: "Role updated", description: `${member?.full_name} is now ${newRole}` });
       setTeamMembers((prev) =>
         prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m))
       );
@@ -309,7 +321,7 @@ export default function SettingsPage() {
             )}
 
             <p className="text-xs text-muted-foreground">
-              Role changes take effect immediately. You cannot change your own role.
+              Role changes take effect immediately and are recorded in the Audit Trail. You cannot change your own role.
             </p>
           </div>
 

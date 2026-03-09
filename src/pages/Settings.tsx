@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { MFASetup } from "@/components/MFASetup";
 import {
   Settings as SettingsIcon, Loader2, Save,
   RefreshCw, Shield, Users, Building2, ChevronDown
@@ -191,6 +192,7 @@ export default function SettingsPage() {
   return (
     <div className="p-6 space-y-6 max-w-2xl">
       <PageHeader title="Settings" description="System configuration" />
+      <MFASetup />
 
       {/* ── Profile Info ─────────────────────────────────────────────────────── */}
       <div className="kpi-card space-y-4">

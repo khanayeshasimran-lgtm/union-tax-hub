@@ -1,305 +1,461 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { Plus, Loader2, DollarSign, Lock, Unlock, TrendingUp, Calendar, CreditCard } from "lucide-react";
 import {
-  Loader2, Clock, BarChart2, History, X
-} from "lucide-react";
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer
+} from "recharts";
 
-const STAGES = [
-  "Converted", "File Received", "Intake Submitted",
-  "Estimation Approved", "Filing In Progress", "Filed", "Closed",
-];
+const METHODS = ["Zelle", "CashApp", "Bank Transfer", "Card", "Check", "Other"];
 
 const STAGE_COLORS: Record<string, string> = {
-  "Converted":           "border-t-blue-400",
-  "File Received":       "border-t-indigo-400",
-  "Intake Submitted":    "border-t-violet-400",
-  "Estimation Approved": "border-t-cyan-400",
-  "Filing In Progress":  "border-t-amber-400",
-  "Filed":               "border-t-green-400",
-  "Closed":              "border-t-gray-400",
+  "Converted":           "bg-blue-100 text-blue-700",
+  "File Received":       "bg-indigo-100 text-indigo-700",
+  "Intake Submitted":    "bg-violet-100 text-violet-700",
+  "Estimation Approved": "bg-cyan-100 text-cyan-700",
+  "Filing In Progress":  "bg-amber-100 text-amber-700",
+  "Filed":               "bg-green-100 text-green-700",
+  "Closed":              "bg-gray-100 text-gray-600",
 };
 
-function AgeBadge({ createdAt }: { createdAt: string }) {
-  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000);
-  const color = days > 14 ? "text-red-500" : days > 7 ? "text-yellow-600" : "text-muted-foreground";
-  return <span className={`text-xs ${color}`}><Clock className="inline h-3 w-3 mr-0.5" />{days}d old</span>;
+// Build last 6 months of revenue from entries
+function buildMonthlyChart(entries: any[]) {
+  const months: Record<string, number> = {};
+
+  // Seed last 6 months with 0
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    const key = d.toLocaleString("default", { month: "short", year: "2-digit" });
+    months[key] = 0;
+  }
+
+  entries.forEach((e) => {
+    if (!e.payment_date) return;
+    const d = new Date(e.payment_date);
+    const key = d.toLocaleString("default", { month: "short", year: "2-digit" });
+    if (key in months) months[key] += Number(e.amount_usd || 0);
+  });
+
+  return Object.entries(months).map(([month, revenue]) => ({ month, revenue }));
 }
 
-export default function Cases() {
+export default function Revenue() {
   const { user, role } = useAuth();
   const { toast } = useToast();
   const isAdmin = role === "admin" || role === "super_admin";
 
+  const [entries, setEntries] = useState<any[]>([]);
   const [cases, setCases] = useState<any[]>([]);
-  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
-
-  // Create case dialog
   const [showCreate, setShowCreate] = useState(false);
-  const [selectedLead, setSelectedLead] = useState("");
-  const [selectedStage, setSelectedStage] = useState("Converted");
   const [creating, setCreating] = useState(false);
+  const [unlocking, setUnlocking] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    case_id: "",
+    amount_usd: "",
+    payment_method: "",
+    payment_date: "",
+    reference: "",
+  });
 
-  // Stage history modal
-  const [historyCase, setHistoryCase] = useState<any | null>(null);
-  const [stageHistory, setStageHistory] = useState<any[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  // Analytics
-  const [showAnalytics, setShowAnalytics] = useState(false);
+  // ── Filters ──────────────────────────────────────────────────────────────────
+  const [filterMethod, setFilterMethod] = useState("all");
+  const [filterLocked, setFilterLocked] = useState("all");
 
   const fetchData = async () => {
+    if (!user) return;
     setLoading(true);
-    const [cRes, lRes] = await Promise.all([
-      supabase.from("cases").select("*, leads(full_name, phone_number)").order("created_at", { ascending: false }),
-      supabase.from("leads").select("id, full_name").order("created_at", { ascending: false }),
+    const [rRes, cRes] = await Promise.all([
+      supabase
+        .from("revenue_entries")
+        .select("*, cases(current_stage, leads(full_name))")
+        .order("payment_date", { ascending: false }),
+      supabase
+        .from("cases")
+        .select("id, current_stage, leads(full_name)")
+        .neq("current_stage", "Closed"),
     ]);
+    setEntries(rRes.data || []);
     setCases(cRes.data || []);
-    setLeads(lRes.data || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [user]);
 
-  // ── Drag and Drop ────────────────────────────────────────────────────────────
-  const handleDragStart = (e: React.DragEvent, caseId: string) => {
-    setDragging(caseId);
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDrop = async (e: React.DragEvent, stage: string) => {
+  // ── Create entry ─────────────────────────────────────────────────────────────
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dragging) return;
-    const c = cases.find(c => c.id === dragging);
-    if (!c || c.current_stage === stage) { setDragging(null); setDragOver(null); return; }
-
-    // Optimistic update
-    setCases(prev => prev.map(x => x.id === dragging ? { ...x, current_stage: stage } : x));
-
-    const { error } = await supabase.from("cases").update({ current_stage: stage, updated_at: new Date().toISOString() }).eq("id", dragging);
-    if (error) {
-      toast({ title: "Update failed", description: error.message, variant: "destructive" });
-      fetchData();
-    } else {
-      toast({ title: `Moved to ${stage}` });
-    }
-    setDragging(null);
-    setDragOver(null);
-  };
-
-  // ── Stage History ────────────────────────────────────────────────────────────
-  const openHistory = async (c: any) => {
-    setHistoryCase(c);
-    setHistoryLoading(true);
-    const { data } = await supabase
-      .from("case_stage_history")
-      .select("*, profiles:changed_by(full_name)")
-      .eq("case_id", c.id)
-      .order("created_at", { ascending: false });
-    setStageHistory(data || []);
-    setHistoryLoading(false);
-  };
-
-  // ── Create Case ──────────────────────────────────────────────────────────────
-  const handleCreateCase = async () => {
-    if (!selectedLead || !user) return;
+    if (!user) return;
     setCreating(true);
-    const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
-    const { error } = await supabase.from("cases").insert({
-      organization_id: profile?.organization_id,
-      lead_id: selectedLead,
-      current_stage: selectedStage,
+
+    const orgRes = await supabase
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    const { error } = await supabase.from("revenue_entries").insert({
+      organization_id: orgRes.data?.organization_id || undefined,
+      case_id: form.case_id || null,
+      agent_id: user.id,
+      amount_usd: parseFloat(form.amount_usd),
+      payment_method: form.payment_method,
+      payment_date: form.payment_date,
+      reference: form.reference || null,
     });
-    if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
-    else { toast({ title: "Case created" }); setShowCreate(false); setSelectedLead(""); await fetchData(); }
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Payment logged successfully" });
+      setShowCreate(false);
+      setForm({ case_id: "", amount_usd: "", payment_method: "", payment_date: "", reference: "" });
+      fetchData();
+    }
     setCreating(false);
   };
 
-  const grouped = STAGES.reduce((acc, stage) => {
-    acc[stage] = cases.filter(c => c.current_stage === stage);
-    return acc;
-  }, {} as Record<string, any[]>);
+  // ── Admin unlock ──────────────────────────────────────────────────────────────
+  const handleAdminUnlock = async (entryId: string) => {
+    setUnlocking(entryId);
+    const { error } = await supabase
+      .from("revenue_entries")
+      .update({ locked: false })
+      .eq("id", entryId);
 
-  // ── Analytics ────────────────────────────────────────────────────────────────
-  const stageAnalytics = STAGES.map(stage => {
-    const stageCases = grouped[stage] || [];
-    const avgAge = stageCases.length > 0
-      ? Math.round(stageCases.reduce((s, c) => s + (Date.now() - new Date(c.created_at).getTime()) / 86400000, 0) / stageCases.length)
-      : 0;
-    return { stage, count: stageCases.length, avgAge };
+    if (error) {
+      toast({ title: "Unlock failed", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Entry unlocked by admin override" });
+      fetchData();
+    }
+    setUnlocking(null);
+  };
+
+  // ── Derived stats ─────────────────────────────────────────────────────────────
+  const totalRevenue = entries.reduce((s, e) => s + Number(e.amount_usd), 0);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const monthlyRevenue = entries
+    .filter((e) => e.payment_date >= monthStart)
+    .reduce((s, e) => s + Number(e.amount_usd), 0);
+  const lockedCount = entries.filter((e) => e.locked).length;
+  const chartData = buildMonthlyChart(entries);
+
+  // ── Filtered entries ──────────────────────────────────────────────────────────
+  const filtered = entries.filter((e) => {
+    const methodMatch = filterMethod === "all" || e.payment_method === filterMethod;
+    const lockedMatch =
+      filterLocked === "all" ||
+      (filterLocked === "locked" && e.locked) ||
+      (filterLocked === "editable" && !e.locked);
+    return methodMatch && lockedMatch;
   });
-
-  if (loading) return (
-    <div className="flex items-center justify-center p-12">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
 
   return (
     <div className="p-6 space-y-6">
       <PageHeader
-        title="Tax Cases Pipeline"
-        description={`${cases.length} total cases`}
+        title="Revenue"
+        description={`${entries.length} entries · $${totalRevenue.toLocaleString()} total`}
         actions={
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setShowAnalytics(!showAnalytics)}>
-              <BarChart2 className="mr-1.5 h-4 w-4" /> Analytics
-            </Button>
-            <Button size="sm" onClick={() => setShowCreate(true)}>+ Create Case</Button>
-          </div>
+          <Dialog open={showCreate} onOpenChange={setShowCreate}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="mr-1.5 h-4 w-4" /> Log Payment
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Log Payment</DialogTitle></DialogHeader>
+              <form onSubmit={handleCreate} className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label>Case</Label>
+                  <Select value={form.case_id} onValueChange={(v) => setForm({ ...form, case_id: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select case..." /></SelectTrigger>
+                    <SelectContent>
+                      {cases.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.leads?.full_name || c.id}
+                          {c.current_stage ? ` — ${c.current_stage}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Amount (USD) *</Label>
+                  <Input
+                    type="number" step="0.01" required placeholder="0.00"
+                    value={form.amount_usd}
+                    onChange={(e) => setForm({ ...form, amount_usd: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Method *</Label>
+                  <Select value={form.payment_method} onValueChange={(v) => setForm({ ...form, payment_method: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select method..." /></SelectTrigger>
+                    <SelectContent>
+                      {METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Date *</Label>
+                  <Input
+                    type="date" required
+                    value={form.payment_date}
+                    onChange={(e) => setForm({ ...form, payment_date: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Reference</Label>
+                  <Input
+                    placeholder="Transaction ID, check #, etc."
+                    value={form.reference}
+                    onChange={(e) => setForm({ ...form, reference: e.target.value })}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={creating || !form.payment_method || !form.amount_usd}>
+                  {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Log Payment
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         }
       />
 
-      {/* Analytics Bar */}
-      {showAnalytics && (
-        <div className="kpi-card overflow-x-auto">
-          <h3 className="mb-3 text-sm font-semibold">Pipeline Analytics</h3>
+      {/* ── Summary KPI Row ─────────────────────────────────────────────────── */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="kpi-card flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
+            <DollarSign className="h-5 w-5 text-green-600" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total Revenue</p>
+            <p className="text-xl font-bold text-foreground">${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+        <div className="kpi-card flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+            <Calendar className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">This Month</p>
+            <p className="text-xl font-bold text-foreground">${monthlyRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+        <div className="kpi-card flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+            <Lock className="h-5 w-5 text-gray-500" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Locked Entries</p>
+            <p className="text-xl font-bold text-foreground">{lockedCount}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Revenue Trend Chart ──────────────────────────────────────────────── */}
+      <div className="kpi-card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Revenue Trend</h3>
+          <span className="text-xs text-muted-foreground">Last 6 months</span>
+        </div>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis
+              dataKey="month"
+              tick={{ fontSize: 11, fill: "#94a3b8" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: "#94a3b8" }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+              width={48}
+            />
+            <Tooltip
+              formatter={(value: any) => [`$${Number(value).toLocaleString()}`, "Revenue"]}
+              contentStyle={{
+                fontSize: 12,
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="revenue"
+              stroke="#6366f1"
+              strokeWidth={2}
+              fill="url(#revenueGrad)"
+              dot={{ fill: "#6366f1", r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Filters ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-3">
+        <Select value={filterMethod} onValueChange={setFilterMethod}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Payment method" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Methods</SelectItem>
+            {METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterLocked} onValueChange={setFilterLocked}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Lock status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Entries</SelectItem>
+            <SelectItem value="locked">Locked Only</SelectItem>
+            <SelectItem value="editable">Editable Only</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {(filterMethod !== "all" || filterLocked !== "all") && (
+          <Button variant="ghost" size="sm" onClick={() => { setFilterMethod("all"); setFilterLocked("all"); }}>
+            Clear Filters
+          </Button>
+        )}
+      </div>
+
+      {/* ── Table ────────────────────────────────────────────────────────────── */}
+      <div className="kpi-card overflow-hidden p-0">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="pb-2 font-medium">Stage</th>
-                <th className="pb-2 font-medium">Cases</th>
-                <th className="pb-2 font-medium">Avg Age</th>
-                <th className="pb-2 font-medium">Distribution</th>
+              <tr className="border-b bg-muted/30 text-left text-muted-foreground">
+                <th className="px-4 py-3 font-medium">Client</th>
+                <th className="px-4 py-3 font-medium">Pipeline Stage</th>
+                <th className="px-4 py-3 font-medium">Amount</th>
+                <th className="px-4 py-3 font-medium">Method</th>
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Reference</th>
+                <th className="px-4 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {stageAnalytics.map(s => (
-                <tr key={s.stage} className="border-b last:border-0">
-                  <td className="py-2 font-medium">{s.stage}</td>
-                  <td className="py-2 text-muted-foreground">{s.count}</td>
-                  <td className={`py-2 ${s.avgAge > 14 ? "text-red-500" : s.avgAge > 7 ? "text-yellow-600" : "text-muted-foreground"}`}>
-                    {s.count > 0 ? `${s.avgAge}d` : "—"}
-                  </td>
-                  <td className="py-2">
-                    <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full bg-primary" style={{ width: `${cases.length > 0 ? (s.count / cases.length) * 100 : 0}%` }} />
-                    </div>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center">
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
                   </td>
                 </tr>
-              ))}
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                    {entries.length === 0 ? "No revenue entries yet" : "No entries match your filters"}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((e) => {
+                  const stage = e.cases?.current_stage;
+                  const stageColor = stage ? STAGE_COLORS[stage] || "bg-muted text-muted-foreground" : "";
+                  return (
+                    <tr key={e.id} className="data-table-row">
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {e.cases?.leads?.full_name || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {stage ? (
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${stageColor}`}>
+                            {stage}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No case</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-foreground">
+                        <div className="flex items-center gap-1">
+                          <DollarSign className="h-3.5 w-3.5 text-green-500" />
+                          {Number(e.amount_usd).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <CreditCard className="h-3.5 w-3.5" />
+                          {e.payment_method}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(e.payment_date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {e.reference || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {e.locked ? (
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <Lock className="h-3 w-3" /> Locked
+                            </span>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleAdminUnlock(e.id)}
+                                disabled={unlocking === e.id}
+                                className="inline-flex items-center gap-1 rounded border border-orange-300 bg-orange-50 px-2 py-0.5 text-xs text-orange-600 hover:bg-orange-100 disabled:opacity-50"
+                              >
+                                {unlocking === e.id
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : <Unlock className="h-3 w-3" />
+                                }
+                                Override
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                            <TrendingUp className="h-3 w-3" /> Editable
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
-      )}
 
-      {/* Kanban Board */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {STAGES.map(stage => (
-          <div
-            key={stage}
-            className="min-w-[240px] flex-shrink-0"
-            onDragOver={(e) => { e.preventDefault(); setDragOver(stage); }}
-            onDragLeave={() => setDragOver(null)}
-            onDrop={(e) => handleDrop(e, stage)}
-          >
-            <div className={`rounded-t-lg border-t-4 ${STAGE_COLORS[stage]} bg-card px-3 py-2 border-x border-b-0 border-border`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">{stage}</span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{grouped[stage]?.length || 0}</span>
-              </div>
-            </div>
-            <div className={`space-y-2 rounded-b-lg border border-t-0 p-2 min-h-[120px] transition-colors ${dragOver === stage ? "bg-primary/5 border-primary/30" : "bg-muted/20 border-border"}`}>
-              {(grouped[stage] || []).length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">No cases</p>
-              ) : (
-                grouped[stage].map((c: any) => (
-                  <div
-                    key={c.id}
-                    draggable={isAdmin}
-                    onDragStart={(e) => handleDragStart(e, c.id)}
-                    className={`rounded-lg border bg-card p-3 shadow-sm transition-opacity ${isAdmin ? "cursor-grab active:cursor-grabbing" : ""} ${dragging === c.id ? "opacity-40" : "opacity-100"}`}
-                  >
-                    <p className="text-sm font-medium">{c.leads?.full_name || "Unknown"}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{c.leads?.phone_number || ""}</p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <AgeBadge createdAt={c.created_at} />
-                      <button
-                        onClick={() => openHistory(c)}
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                        title="View stage history"
-                      >
-                        <History className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+        {filtered.length > 0 && (
+          <div className="flex items-center justify-between border-t bg-muted/10 px-4 py-2">
+            <p className="text-xs text-muted-foreground">
+              Showing {filtered.length} of {entries.length} entries
+            </p>
+            <p className="text-xs font-semibold text-foreground">
+              Filtered Total: $
+              {filtered.reduce((s, e) => s + Number(e.amount_usd), 0)
+                .toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </p>
           </div>
-        ))}
+        )}
       </div>
-
-      {/* Create Case Modal */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[400px] space-y-4 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Create Case</h2>
-              <button onClick={() => setShowCreate(false)}><X className="h-5 w-5 text-muted-foreground" /></button>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Lead</label>
-              <select value={selectedLead} onChange={(e) => setSelectedLead(e.target.value)} className="w-full mt-1 border rounded-md p-2 text-sm">
-                <option value="">Select lead...</option>
-                {leads.map(l => <option key={l.id} value={l.id}>{l.full_name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Initial Stage</label>
-              <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)} className="w-full mt-1 border rounded-md p-2 text-sm">
-                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <Button onClick={handleCreateCase} disabled={!selectedLead || creating} className="w-full">
-              {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Case
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Stage History Modal */}
-      {historyCase && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[480px] max-h-[80vh] overflow-y-auto shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Stage History</h2>
-              <button onClick={() => setHistoryCase(null)}><X className="h-5 w-5 text-muted-foreground" /></button>
-            </div>
-            <p className="text-sm text-muted-foreground">{historyCase.leads?.full_name || "Unknown"}</p>
-            {historyLoading ? (
-              <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-            ) : stageHistory.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">No stage transitions recorded yet</p>
-            ) : (
-              <div className="space-y-3">
-                {stageHistory.map((h: any) => (
-                  <div key={h.id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-                    <div className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
-                    <div>
-                      <p>
-                        <span className="text-muted-foreground line-through">{h.previous_stage || "Created"}</span>
-                        {" → "}
-                        <span className="font-medium text-foreground">{h.new_stage}</span>
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {h.profiles?.full_name || "System"} · {new Date(h.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

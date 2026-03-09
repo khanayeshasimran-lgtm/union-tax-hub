@@ -56,7 +56,11 @@ const ROLE_GRADIENT: Record<string, { from: string; to: string }> = {
   client:        { from: "from-pink-400", to: "to-rose-500" },
 };
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  onNavigate?: () => void;
+}
+
+export function AppSidebar({ onNavigate }: AppSidebarProps) {
   const { role, profile, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -81,7 +85,9 @@ export function AppSidebar() {
         "relative flex flex-col h-screen transition-all duration-300 ease-in-out",
         "border-r border-gray-200",
         "bg-gradient-to-b from-slate-950 via-gray-900 to-slate-950",
-        collapsed ? "w-[72px]" : "w-[260px]"
+        // On mobile always full width, on desktop collapsed/expanded
+        "w-[260px] md:w-auto",
+        collapsed ? "md:w-[72px]" : "md:w-[260px]"
       )}
     >
       {/* Subtle gradient overlay */}
@@ -90,7 +96,7 @@ export function AppSidebar() {
       {/* ── Logo & Branding ──────────────────────────────────────────────────── */}
       <div className={cn(
         "relative z-10 flex h-[68px] items-center border-b border-gray-800 backdrop-blur-sm",
-        collapsed ? "justify-center px-2" : "px-4 gap-3"
+        collapsed ? "md:justify-center md:px-2 px-4 gap-3" : "px-4 gap-3"
       )}>
         <div className="relative flex-shrink-0">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-emerald-600 rounded-xl blur-lg opacity-70" />
@@ -99,25 +105,24 @@ export function AppSidebar() {
           </div>
         </div>
 
-        {!collapsed && (
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-1">
-              <p className="text-sm font-bold text-white tracking-tight">Union</p>
-              <p className="text-sm font-light text-blue-200">Tax</p>
-            </div>
-            <p className="text-[9px] text-gray-400 tracking-widest uppercase mt-0.5">Platform</p>
+        {/* Always show on mobile, hide when collapsed on desktop */}
+        <div className={cn("min-w-0 flex-1", collapsed ? "md:hidden" : "")}>
+          <div className="flex items-baseline gap-1">
+            <p className="text-sm font-bold text-white tracking-tight">Union</p>
+            <p className="text-sm font-light text-blue-200">Tax</p>
           </div>
-        )}
+          <p className="text-[9px] text-gray-400 tracking-widest uppercase mt-0.5">Platform</p>
+        </div>
 
         <Sparkles className="absolute right-2 h-3 w-3 text-blue-400/40" />
       </div>
 
-      {/* ── Collapse toggle ────────────────────────────────────────────────────── */}
+      {/* ── Collapse toggle — desktop only ───────────────────────────────────── */}
       <button
         onClick={() => setCollapsed(!collapsed)}
         className={cn(
-          "absolute -right-3 top-[82px] z-20",
-          "flex h-6 w-6 items-center justify-center rounded-full",
+          "absolute -right-3 top-[82px] z-20 hidden md:flex",
+          "h-6 w-6 items-center justify-center rounded-full",
           "bg-white border-2 border-gray-300 shadow-lg",
           "text-gray-700 hover:text-gray-900 hover:bg-gray-50 transition-all duration-200 hover:scale-110"
         )}
@@ -129,15 +134,16 @@ export function AppSidebar() {
 
       {/* ── Navigation ────────────────────────────────────────────────────────── */}
       <nav className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden py-4 px-2.5 space-y-1 scrollbar-none">
-        {menu.map((item, idx) => (
+        {menu.map((item) => (
           <NavLink
             key={item.to + item.label}
             to={item.to}
             end={"end" in item ? (item.end as boolean) : false}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 "group relative flex items-center rounded-lg transition-all duration-200",
-                collapsed ? "justify-center h-11 w-11 mx-auto" : "gap-3 px-3.5 h-10",
+                collapsed ? "md:justify-center md:h-11 md:w-11 md:mx-auto gap-3 px-3.5 h-10" : "gap-3 px-3.5 h-10",
                 isActive
                   ? "bg-gradient-to-r from-blue-600/30 to-emerald-600/30 border border-blue-500/50 text-blue-100 shadow-lg shadow-blue-600/20"
                   : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
@@ -155,20 +161,23 @@ export function AppSidebar() {
                 )}>
                   <item.icon className={cn(
                     "transition-all duration-200",
-                    collapsed ? "h-5 w-5" : "h-4 w-4",
+                    collapsed ? "md:h-5 md:w-5 h-4 w-4" : "h-4 w-4",
                   )} />
                 </div>
-                {!collapsed && (
-                  <span className={cn(
-                    "text-sm font-medium tracking-tight transition-colors duration-200",
-                    isActive ? "text-white font-semibold" : "text-gray-400"
-                  )}>
-                    {item.label}
-                  </span>
-                )}
+
+                {/* Always show label on mobile, hide when collapsed on desktop */}
+                <span className={cn(
+                  "text-sm font-medium tracking-tight transition-colors duration-200",
+                  collapsed ? "md:hidden" : "",
+                  isActive ? "text-white font-semibold" : "text-gray-400"
+                )}>
+                  {item.label}
+                </span>
+
+                {/* Tooltip — desktop collapsed only */}
                 {collapsed && (
                   <span className={cn(
-                    "pointer-events-none absolute left-full ml-3 z-50",
+                    "pointer-events-none absolute left-full ml-3 z-50 hidden md:block",
                     "whitespace-nowrap rounded-lg bg-gradient-to-r from-gray-800 to-slate-900 border border-gray-700",
                     "px-3 py-1.5 text-xs font-medium text-gray-100 shadow-xl backdrop-blur-sm",
                     "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
@@ -186,8 +195,9 @@ export function AppSidebar() {
       <div className="relative z-10 mx-3 h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
 
       {/* ── User Footer ───────────────────────────────────────────────────────── */}
-      <div className={cn("relative z-10 p-3", collapsed ? "flex justify-center" : "")}>
-        {collapsed ? (
+      <div className={cn("relative z-10 p-3", collapsed ? "md:flex md:justify-center" : "")}>
+        {/* Collapsed desktop only */}
+        <div className={cn(collapsed ? "md:block hidden" : "hidden")}>
           <button
             onClick={signOut}
             title="Sign out"
@@ -195,7 +205,10 @@ export function AppSidebar() {
           >
             <LogOut className="h-4 w-4" />
           </button>
-        ) : (
+        </div>
+
+        {/* Full footer — always on mobile, when expanded on desktop */}
+        <div className={cn(collapsed ? "md:hidden" : "")}>
           <div className="rounded-lg bg-gradient-to-r from-gray-800/50 to-gray-900/30 border border-gray-700 p-3 backdrop-blur-sm hover:border-gray-600 hover:from-gray-800/70 transition-all duration-200">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -226,7 +239,7 @@ export function AppSidebar() {
               </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </aside>
   );

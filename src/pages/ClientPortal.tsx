@@ -60,20 +60,36 @@ export default function ClientPortal() {
   const [selectedCase, setSelectedCase] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState<string | null>(null);
+const fetchCases = async () => {
+  if (!user) return;
+  setLoading(true);
 
-  const fetchCases = async () => {
-    if (!user) return;
-    setLoading(true);
+  // Find the lead that matches this client's email
+  const { data: leadData } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("email", user.email)
+    .limit(1);
 
-    const { data } = await supabase
-      .from("cases")
-      .select("*, leads(full_name, phone_number, email)")
-      .order("created_at", { ascending: false });
-
-    setCases(data || []);
-    if (data && data.length > 0) setSelectedCase(data[0]);
+  if (!leadData || leadData.length === 0) {
+    setCases([]);
     setLoading(false);
-  };
+    return;
+  }
+
+  const leadId = leadData[0].id;
+
+  // Only fetch cases belonging to this client's lead
+  const { data } = await supabase
+    .from("cases")
+    .select("*, leads(full_name, phone_number, email)")
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false });
+
+  setCases(data || []);
+  if (data && data.length > 0) setSelectedCase(data[0]);
+  setLoading(false);
+};
 
   const fetchDocuments = async (caseId: string) => {
     const { data } = await (supabase.from("case_documents") as any)

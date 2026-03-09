@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Upload, CheckCircle2, XCircle, Clock,
   AlertTriangle, FileText, User, Shield, Briefcase,
-  ChevronDown, ChevronUp, Plus, Download
+  ChevronDown, ChevronUp, Plus, Download, CalendarClock
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
@@ -32,6 +32,44 @@ const OWNER_CONFIG: Record<OwnerRole, { label: string; icon: any; color: string 
   system: { label: "System", icon: FileText,  color: "text-gray-500" },
 };
 
+// ── Expiry helpers ────────────────────────────────────────────────────────────
+function getExpiryStatus(expiresAt: string | null): "expired" | "expiring-soon" | "valid" | "none" {
+  if (!expiresAt) return "none";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(expiresAt);
+  const daysUntil = Math.floor((expiry.getTime() - today.getTime()) / 86400000);
+  if (daysUntil < 0) return "expired";
+  if (daysUntil <= 30) return "expiring-soon";
+  return "valid";
+}
+
+function ExpiryBadge({ expiresAt }: { expiresAt: string | null }) {
+  if (!expiresAt) return null;
+  const status = getExpiryStatus(expiresAt);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(expiresAt);
+  const daysUntil = Math.floor((expiry.getTime() - today.getTime()) / 86400000);
+
+  const configs = {
+    expired:       { color: "bg-red-100 text-red-700 border-red-200",       label: `Expired ${Math.abs(daysUntil)}d ago` },
+    "expiring-soon": { color: "bg-orange-100 text-orange-700 border-orange-200", label: `Expires in ${daysUntil}d` },
+    valid:         { color: "bg-green-100 text-green-700 border-green-200",  label: `Expires ${expiry.toLocaleDateString()}` },
+    none:          { color: "", label: "" },
+  };
+
+  const cfg = configs[status];
+  if (!cfg.label) return null;
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.color}`}>
+      <CalendarClock className="h-3 w-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
 function DocStatusBadge({ status }: { status: DocStatus }) {
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.uploaded;
   const Icon = cfg.icon;
@@ -53,7 +91,7 @@ function OwnerBadge({ role }: { role: OwnerRole }) {
 }
 
 export default function Documents() {
-const { user, role } = useAuth();
+  const { user, role } = useAuth();
   const { toast } = useToast();
   const isAdmin = role === "admin" || role === "super_admin";
 
@@ -69,6 +107,11 @@ const { user, role } = useAuth();
   const [newDocName, setNewDocName] = useState("");
   const [addingDoc, setAddingDoc] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+
+  // Expiry editing state
+  const [editingExpiry, setEditingExpiry] = useState<string | null>(null);
+  const [expiryValue, setExpiryValue] = useState("");
+  const [savingExpiry, setSavingExpiry] = useState(false);
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -106,10 +149,9 @@ const { user, role } = useAuth();
     }
   };
 
-  // ── Load cases (wait for auth) ───────────────────────────────────────────────
+  // ── Load cases ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
-
     supabase
       .from("cases")
       .select("id, current_stage, leads(full_name)")
@@ -156,10 +198,7 @@ const { user, role } = useAuth();
   }, [selectedCase]);
 
   // ── Upload ───────────────────────────────────────────────────────────────────
-  const handleUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-    reqDocId?: string
-  ) => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, reqDocId?: string) => {
     if (!selectedCase || !user) return;
     const file = e.target.files?.[0];
     if (!file) return;
@@ -169,22 +208,16 @@ const { user, role } = useAuth();
       const orgId = await getOrgId();
       if (!orgId) return;
 
-      const safeName = file.name
-        .replace(/[^\w\s.-]/g, "")
-        .replace(/\s+/g, "_")
-        .toLowerCase();
+      const safeName = file.name.replace(/[^\w\s.-]/g, "").replace(/\s+/g, "_").toLowerCase();
       const path = `${orgId}/${selectedCase}/${Date.now()}_${safeName}`;
 
-      const { error: storageErr } = await supabase.storage
-        .from("client-documents")
-        .upload(path, file);
-
+      const { error: storageErr } = await supabase.storage.from("client-documents").upload(path, file);
       if (storageErr) {
         toast({ title: "Upload failed", description: storageErr.message, variant: "destructive" });
         return;
       }
 
-      const { error: dbErr } = await supabase.from("case_documents").insert({
+      const { error: dbErr } = await (supabase as any).from("case_documents").insert({
         file_name: file.name,
         file_path: path,
         organization_id: orgId,
@@ -221,16 +254,12 @@ const { user, role } = useAuth();
     }
     setDownloading(doc.id);
     try {
-      const { data, error } = await supabase.storage
-        .from("client-documents")
-        .createSignedUrl(path, 60);
-
+      const { data, error } = await supabase.storage.from("client-documents").createSignedUrl(path, 60);
       if (error || !data?.signedUrl) {
         toast({ title: "Download failed", description: error?.message || "Could not generate link.", variant: "destructive" });
         return;
       }
       window.open(data.signedUrl, "_blank");
-      toast({ title: "Opening file", description: doc.document_name || doc.file_name || "File" });
     } finally {
       if (isMountedRef.current) setDownloading(null);
     }
@@ -240,11 +269,7 @@ const { user, role } = useAuth();
   const updateStatus = async (docId: string, status: DocStatus) => {
     setUpdatingStatus(docId);
     try {
-      const { error } = await supabase
-        .from("case_documents")
-        .update({ status })
-        .eq("id", docId);
-
+      const { error } = await supabase.from("case_documents").update({ status }).eq("id", docId);
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
@@ -256,6 +281,26 @@ const { user, role } = useAuth();
     }
   };
 
+  // ── Save expiry ──────────────────────────────────────────────────────────────
+  const saveExpiry = async (docId: string) => {
+    setSavingExpiry(true);
+    try {
+const { error } = await (supabase as any)
+  .from("case_documents")
+  .update({ expires_at: expiryValue || null })
+  .eq("id", docId);
+      if (error) {
+        toast({ title: "Error saving expiry", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Expiry date saved" });
+        setEditingExpiry(null);
+        await reloadDocs(selectedCase);
+      }
+    } finally {
+      if (isMountedRef.current) setSavingExpiry(false);
+    }
+  };
+
   // ── Add required doc ─────────────────────────────────────────────────────────
   const handleAddRequired = async () => {
     if (!newDocName.trim() || !selectedCase || !user) return;
@@ -263,14 +308,12 @@ const { user, role } = useAuth();
     try {
       const orgId = await getOrgId();
       if (!orgId) return;
-
       const { error } = await supabase.from("required_documents").insert({
         case_id: selectedCase,
         organization_id: orgId,
         document_name: newDocName.trim(),
         is_required: true,
       });
-
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
@@ -297,7 +340,12 @@ const { user, role } = useAuth();
     ? Math.round(((totalRequired - missingCount) / totalRequired) * 100)
     : 0;
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // Expiry alerts — expired or expiring within 30 days
+  const expiryAlerts = uploadedDocs.filter((d) => {
+    const s = getExpiryStatus(d.expires_at);
+    return s === "expired" || s === "expiring-soon";
+  });
+
   return (
     <div className="p-6 space-y-6">
       <PageHeader title="Document Center" description="Full document pipeline per case" />
@@ -334,6 +382,29 @@ const { user, role } = useAuth();
         )}
       </div>
 
+      {/* ── Expiry Alerts ───────────────────────────────────────────────────── */}
+      {selectedCase && expiryAlerts.length > 0 && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-orange-600 flex-shrink-0" />
+            <p className="text-sm font-semibold text-orange-800">
+              {expiryAlerts.length} document{expiryAlerts.length > 1 ? "s" : ""} expiring or expired
+            </p>
+          </div>
+          <ul className="space-y-1">
+            {expiryAlerts.map((d) => {
+              const status = getExpiryStatus(d.expires_at);
+              return (
+                <li key={d.id} className="flex items-center justify-between text-xs text-orange-700">
+                  <span>• {d.document_name || d.file_name}</span>
+                  <ExpiryBadge expiresAt={d.expires_at} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* ── Missing Docs Alert ───────────────────────────────────────────────── */}
       {selectedCase && missingCount > 0 && (
         <div className="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 p-4">
@@ -361,7 +432,6 @@ const { user, role } = useAuth();
         </div>
       )}
 
-      {/* ── Empty / Loading / Content ────────────────────────────────────────── */}
       {!selectedCase ? (
         <div className="kpi-card flex flex-col items-center justify-center py-16">
           <FileText className="mb-3 h-10 w-10 opacity-30 text-muted-foreground" />
@@ -386,9 +456,7 @@ const { user, role } = useAuth();
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add Required Document</DialogTitle>
-                    </DialogHeader>
+                    <DialogHeader><DialogTitle>Add Required Document</DialogTitle></DialogHeader>
                     <div className="space-y-4 pt-2">
                       <div className="space-y-2">
                         <Label>Document Name</Label>
@@ -400,11 +468,7 @@ const { user, role } = useAuth();
                           disabled={addingDoc}
                         />
                       </div>
-                      <Button
-                        onClick={handleAddRequired}
-                        disabled={addingDoc || !newDocName.trim()}
-                        className="w-full"
-                      >
+                      <Button onClick={handleAddRequired} disabled={addingDoc || !newDocName.trim()} className="w-full">
                         {addingDoc && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Add
                       </Button>
@@ -435,9 +499,7 @@ const { user, role } = useAuth();
                         : <XCircle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{doc.document_name}</p>
-                        {matched && (
-                          <p className="text-xs text-muted-foreground truncate">{matched.document_name}</p>
-                        )}
+                        {matched && <ExpiryBadge expiresAt={matched.expires_at} />}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-2 flex-shrink-0">
@@ -447,7 +509,6 @@ const { user, role } = useAuth();
                           onClick={() => handleDownload(matched)}
                           disabled={downloading === matched.id}
                           className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                          aria-label="Download document"
                         >
                           {downloading === matched.id
                             ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -456,16 +517,9 @@ const { user, role } = useAuth();
                       )}
                       {!isReceived && (
                         <label className="cursor-pointer inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors">
-                          {uploading
-                            ? <Loader2 className="h-3 w-3 animate-spin" />
-                            : <Upload className="h-3 w-3" />}
+                          {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
                           Upload
-                          <input
-                            type="file"
-                            className="hidden"
-                            onChange={(e) => handleUpload(e, doc.id)}
-                            disabled={uploading}
-                          />
+                          <input type="file" className="hidden" onChange={(e) => handleUpload(e, doc.id)} disabled={uploading} />
                         </label>
                       )}
                     </div>
@@ -480,16 +534,9 @@ const { user, role } = useAuth();
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">All Uploads ({uploadedDocs.length})</h3>
               <label className={`inline-flex items-center gap-1 cursor-pointer rounded-md border px-2 py-1 text-xs hover:bg-muted transition-colors ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
-                {uploading
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <Upload className="h-3 w-3" />}
+                {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
                 Upload New
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => handleUpload(e)}
-                  disabled={uploading}
-                />
+                <input type="file" className="hidden" onChange={(e) => handleUpload(e)} disabled={uploading} />
               </label>
             </div>
 
@@ -501,13 +548,15 @@ const { user, role } = useAuth();
                   <button
                     className="flex w-full items-center justify-between p-3 text-left hover:bg-muted/5 transition-colors"
                     onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
-                    aria-expanded={expandedDoc === doc.id}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      <span className="truncate text-sm font-medium">
-                        {doc.document_name || doc.file_name}
-                      </span>
+                      <div className="min-w-0">
+                        <span className="truncate text-sm font-medium block">
+                          {doc.document_name || doc.file_name}
+                        </span>
+                        <ExpiryBadge expiresAt={doc.expires_at} />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 ml-2 flex-shrink-0">
                       <DocStatusBadge status={doc.status} />
@@ -520,17 +569,67 @@ const { user, role } = useAuth();
                   {expandedDoc === doc.id && (
                     <div className="border-t px-3 py-3 space-y-3">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>
-                          By:{" "}
-                          <span className="font-medium text-foreground">
-                            {doc.profiles?.full_name || "—"}
-                          </span>
-                        </span>
+                        <span>By: <span className="font-medium text-foreground">{doc.profiles?.full_name || "—"}</span></span>
                         <OwnerBadge role={doc.owner_role || doc.owner_type || "agent"} />
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(doc.created_at).toLocaleString()}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{new Date(doc.created_at).toLocaleString()}</p>
+
+                      {/* Expiry editor — admin only */}
+                      {isAdmin && (
+                        <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                            <CalendarClock className="h-3.5 w-3.5" /> Expiry Date
+                          </p>
+                          {editingExpiry === doc.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="date"
+                                value={expiryValue}
+                                onChange={(e) => setExpiryValue(e.target.value)}
+                                className="h-7 text-xs"
+                              />
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => saveExpiry(doc.id)}
+                                disabled={savingExpiry}
+                              >
+                                {savingExpiry ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs"
+                                onClick={() => setEditingExpiry(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {doc.expires_at
+                                ? <ExpiryBadge expiresAt={doc.expires_at} />
+                                : <span className="text-xs text-muted-foreground">No expiry set</span>}
+                              <button
+                                onClick={() => {
+                                  setEditingExpiry(doc.id);
+                                  setExpiryValue(doc.expires_at || "");
+                                }}
+                                className="text-xs text-indigo-600 hover:underline"
+                              >
+                                {doc.expires_at ? "Edit" : "Set expiry"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Non-admin expiry view */}
+                      {!isAdmin && doc.expires_at && (
+                        <div className="flex items-center gap-2">
+                          <ExpiryBadge expiresAt={doc.expires_at} />
+                        </div>
+                      )}
 
                       <button
                         onClick={() => handleDownload(doc)}
@@ -546,33 +645,22 @@ const { user, role } = useAuth();
                       {isAdmin && doc.status !== "approved" && (
                         <div className="flex gap-2 pt-1 flex-wrap">
                           {doc.status === "uploaded" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-xs h-7"
+                            <Button size="sm" variant="outline" className="text-xs h-7"
                               onClick={() => updateStatus(doc.id, "under_review")}
-                              disabled={updatingStatus === doc.id}
-                            >
+                              disabled={updatingStatus === doc.id}>
                               {updatingStatus === doc.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                               Mark Under Review
                             </Button>
                           )}
-                          <Button
-                            size="sm"
-                            className="text-xs h-7 bg-green-600 hover:bg-green-700"
+                          <Button size="sm" className="text-xs h-7 bg-green-600 hover:bg-green-700"
                             onClick={() => updateStatus(doc.id, "approved")}
-                            disabled={updatingStatus === doc.id}
-                          >
+                            disabled={updatingStatus === doc.id}>
                             {updatingStatus === doc.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                             <CheckCircle2 className="mr-1 h-3 w-3" /> Approve
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="text-xs h-7"
+                          <Button size="sm" variant="destructive" className="text-xs h-7"
                             onClick={() => updateStatus(doc.id, "rejected")}
-                            disabled={updatingStatus === doc.id}
-                          >
+                            disabled={updatingStatus === doc.id}>
                             {updatingStatus === doc.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                             <XCircle className="mr-1 h-3 w-3" /> Reject
                           </Button>
@@ -580,13 +668,9 @@ const { user, role } = useAuth();
                       )}
 
                       {doc.status === "rejected" && isAdmin && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-7"
+                        <Button size="sm" variant="outline" className="text-xs h-7"
                           onClick={() => updateStatus(doc.id, "uploaded")}
-                          disabled={updatingStatus === doc.id}
-                        >
+                          disabled={updatingStatus === doc.id}>
                           {updatingStatus === doc.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                           Re-open
                         </Button>
@@ -609,7 +693,6 @@ const { user, role } = useAuth();
               ))
             )}
           </div>
-
         </div>
       )}
     </div>

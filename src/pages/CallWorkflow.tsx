@@ -18,6 +18,10 @@ export default function CallWorkflow() {
   const [searchParams] = useSearchParams();
   const leadId = searchParams.get("leadId");
 
+  // Bug 6 fix: get role to determine if admin
+  const { role } = useAuth();
+  const isAdmin = role === "admin" || role === "super_admin";
+
   const [leads, setLeads] = useState<any[]>([]);
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [disposition, setDisposition] = useState("");
@@ -34,12 +38,25 @@ export default function CallWorkflow() {
     if (!user) return;
     const fetch = async () => {
       setLoading(true);
+
+      // Bug 6 fix: agents only see their own leads, admins see all
+      let leadsQuery = supabase
+        .from("leads")
+        .select("*")
+        .in("status", ["New","Not Answered","Follow-Up","Follow-Up Required"])
+        .order("created_at", { ascending: true });
+
+      if (!isAdmin) {
+        leadsQuery = leadsQuery.eq("assigned_agent_id", user.id);
+      }
+
       const [leadsRes, analyticsRes, settingsRes, rotationRes] = await Promise.all([
-        supabase.from("leads").select("*").in("status", ["New","Not Answered","Follow-Up","Follow-Up Required"]).order("created_at", { ascending: true }),
+        leadsQuery,
         supabase.from("call_dispositions").select("disposition_type").eq("agent_id", user.id).gte("created_at", new Date().toISOString().split("T")[0]),
         supabase.from("system_settings").select("max_attempt_limit").single(),
         supabase.from("leads").select("id", { count: "exact" }).eq("status", "Not Answered"),
       ]);
+
       const list = leadsRes.data || [];
       setLeads(list);
       if (leadId) {
@@ -61,7 +78,7 @@ export default function CallWorkflow() {
       setLoading(false);
     };
     fetch();
-  }, [user, leadId]);
+  }, [user, leadId, isAdmin]);
 
   const copyPhone = () => {
     if (!selectedLead) return;
@@ -77,21 +94,33 @@ export default function CallWorkflow() {
     }
     setSubmitting(true);
     const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
+
+    // Bug 1 fix: only insert disposition — DB trigger handles lead status + attempt_count update
     const { error } = await supabase.from("call_dispositions").insert({
       organization_id: profile?.organization_id || selectedLead.organization_id,
       lead_id: selectedLead.id, agent_id: user.id, disposition_type: disposition,
       notes: notes || null, attempt_count_at_time: selectedLead.attempt_count + 1,
     });
+
     if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); setSubmitting(false); return; }
-    await supabase.from("leads").update({
-      status: disposition === "Follow-Up Required" ? "Follow-Up" : disposition,
-      attempt_count: selectedLead.attempt_count + 1,
-      updated_at: new Date().toISOString(),
-    }).eq("id", selectedLead.id);
+
     toast({ title: "Disposition logged" });
     setDisposition(""); setNotes(""); setSelectedLead(null);
-    const { data } = await supabase.from("leads").select("*").in("status", ["New","Not Answered","Follow-Up","Follow-Up Required"]).order("created_at", { ascending: true });
+
+    // Refresh leads queue with same agent filter
+    let refreshQuery = supabase
+      .from("leads")
+      .select("*")
+      .in("status", ["New","Not Answered","Follow-Up","Follow-Up Required"])
+      .order("created_at", { ascending: true });
+
+    if (!isAdmin) {
+      refreshQuery = refreshQuery.eq("assigned_agent_id", user.id);
+    }
+
+    const { data } = await refreshQuery;
     setLeads(data || []);
+
     // Refresh analytics
     const { data: disp } = await supabase.from("call_dispositions").select("disposition_type").eq("agent_id", user.id).gte("created_at", new Date().toISOString().split("T")[0]);
     setAnalytics(prev => ({ ...prev, callsToday: (disp || []).length, convertedToday: (disp || []).filter((d: any) => d.disposition_type === "Converted").length }));

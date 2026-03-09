@@ -37,6 +37,14 @@ const US_STATES = [
   "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
 ];
 
+function DecryptedSSN({ encrypted }: { encrypted: string }) {
+  const [ssn, setSsn] = useState("Loading...");
+  useEffect(() => {
+(supabase as any).rpc("decrypt_ssn", { encrypted_ssn: encrypted })
+      .then(({ data }) => setSsn(data || "Error"));
+  }, [encrypted]);
+  return <span>{ssn}</span>;
+}
 // Simple SSN masker — shows only last 4
 function maskSSN(raw: string) {
   const digits = raw.replace(/\D/g, "");
@@ -170,8 +178,15 @@ export default function ClientIntake() {
     // Store last 4 for display, full SSN "encrypted" as base64
     // In production use pgcrypto encrypt() — this is masked storage
     const ssnLast4 = ssnDigits.slice(-4);
-    const ssnEncrypted = btoa(form.ssn); // base64 — replace with pgcrypto in production
+const { data: encryptedData, error: encryptErr } = await (supabase as any)
+  .rpc("encrypt_ssn", { plain_ssn: form.ssn });
 
+if (encryptErr || !encryptedData) {
+  toast({ title: "Encryption failed", description: "Could not secure SSN. Contact support.", variant: "destructive" });
+  setSubmitting(false);
+  return;
+}
+const ssnEncrypted = encryptedData;
     const { error } = await supabase.from("client_intake").insert({
       organization_id: orgId,
       lead_id: form.lead_id || null,
@@ -657,10 +672,10 @@ export default function ClientIntake() {
                   <div>
                     <p className="text-xs text-muted-foreground">SSN</p>
                     <div className="flex items-center gap-2 font-mono">
-                      {showViewSSN && isAdmin
-                        ? atob(viewIntake.ssn_encrypted || "")
-                        : `***-**-${viewIntake.ssn_last_four || "????"}`
-                      }
+{showViewSSN && isAdmin
+  ? <DecryptedSSN encrypted={viewIntake.ssn_encrypted} />
+  : `***-**-${viewIntake.ssn_last_four || "????"}`
+}
                       {isAdmin && (
                         <button
                           onClick={() => setShowViewSSN(!showViewSSN)}

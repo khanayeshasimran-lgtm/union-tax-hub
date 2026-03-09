@@ -9,6 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Loader2, DollarSign, Lock, Unlock, TrendingUp, Calendar, CreditCard } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer
+} from "recharts";
 
 const METHODS = ["Zelle", "CashApp", "Bank Transfer", "Card", "Check", "Other"];
 
@@ -21,6 +25,29 @@ const STAGE_COLORS: Record<string, string> = {
   "Filed":               "bg-green-100 text-green-700",
   "Closed":              "bg-gray-100 text-gray-600",
 };
+
+// Build last 6 months of revenue from entries
+function buildMonthlyChart(entries: any[]) {
+  const months: Record<string, number> = {};
+
+  // Seed last 6 months with 0
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    const key = d.toLocaleString("default", { month: "short", year: "2-digit" });
+    months[key] = 0;
+  }
+
+  entries.forEach((e) => {
+    if (!e.payment_date) return;
+    const d = new Date(e.payment_date);
+    const key = d.toLocaleString("default", { month: "short", year: "2-digit" });
+    if (key in months) months[key] += Number(e.amount_usd || 0);
+  });
+
+  return Object.entries(months).map(([month, revenue]) => ({ month, revenue }));
+}
 
 export default function Revenue() {
   const { user, role } = useAuth();
@@ -117,14 +144,13 @@ export default function Revenue() {
 
   // ── Derived stats ─────────────────────────────────────────────────────────────
   const totalRevenue = entries.reduce((s, e) => s + Number(e.amount_usd), 0);
-
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
   const monthlyRevenue = entries
     .filter((e) => e.payment_date >= monthStart)
     .reduce((s, e) => s + Number(e.amount_usd), 0);
-
   const lockedCount = entries.filter((e) => e.locked).length;
+  const chartData = buildMonthlyChart(entries);
 
   // ── Filtered entries ──────────────────────────────────────────────────────────
   const filtered = entries.filter((e) => {
@@ -168,10 +194,7 @@ export default function Revenue() {
                 <div className="space-y-2">
                   <Label>Amount (USD) *</Label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="0.00"
+                    type="number" step="0.01" required placeholder="0.00"
                     value={form.amount_usd}
                     onChange={(e) => setForm({ ...form, amount_usd: e.target.value })}
                   />
@@ -188,8 +211,7 @@ export default function Revenue() {
                 <div className="space-y-2">
                   <Label>Payment Date *</Label>
                   <Input
-                    type="date"
-                    required
+                    type="date" required
                     value={form.payment_date}
                     onChange={(e) => setForm({ ...form, payment_date: e.target.value })}
                   />
@@ -243,6 +265,56 @@ export default function Revenue() {
         </div>
       </div>
 
+      {/* ── Revenue Trend Chart ──────────────────────────────────────────────── */}
+      <div className="kpi-card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Revenue Trend</h3>
+          <span className="text-xs text-muted-foreground">Last 6 months</span>
+        </div>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis
+              dataKey="month"
+              tick={{ fontSize: 11, fill: "#94a3b8" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: "#94a3b8" }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+              width={48}
+            />
+            <Tooltip
+              formatter={(value: any) => [`$${Number(value).toLocaleString()}`, "Revenue"]}
+              contentStyle={{
+                fontSize: 12,
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="revenue"
+              stroke="#6366f1"
+              strokeWidth={2}
+              fill="url(#revenueGrad)"
+              dot={{ fill: "#6366f1", r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
       {/* ── Filters ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3">
         <Select value={filterMethod} onValueChange={setFilterMethod}>
@@ -267,11 +339,7 @@ export default function Revenue() {
         </Select>
 
         {(filterMethod !== "all" || filterLocked !== "all") && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => { setFilterMethod("all"); setFilterLocked("all"); }}
-          >
+          <Button variant="ghost" size="sm" onClick={() => { setFilterMethod("all"); setFilterLocked("all"); }}>
             Clear Filters
           </Button>
         )}
@@ -311,12 +379,9 @@ export default function Revenue() {
                   const stageColor = stage ? STAGE_COLORS[stage] || "bg-muted text-muted-foreground" : "";
                   return (
                     <tr key={e.id} className="data-table-row">
-                      {/* Client */}
                       <td className="px-4 py-3 font-medium text-foreground">
                         {e.cases?.leads?.full_name || "—"}
                       </td>
-
-                      {/* Pipeline Stage */}
                       <td className="px-4 py-3">
                         {stage ? (
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${stageColor}`}>
@@ -326,34 +391,24 @@ export default function Revenue() {
                           <span className="text-xs text-muted-foreground">No case</span>
                         )}
                       </td>
-
-                      {/* Amount */}
                       <td className="px-4 py-3 font-semibold text-foreground">
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-3.5 w-3.5 text-green-500" />
                           {Number(e.amount_usd).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </div>
                       </td>
-
-                      {/* Method */}
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1 text-muted-foreground">
                           <CreditCard className="h-3.5 w-3.5" />
                           {e.payment_method}
                         </span>
                       </td>
-
-                      {/* Date */}
                       <td className="px-4 py-3 text-muted-foreground">
                         {new Date(e.payment_date).toLocaleDateString()}
                       </td>
-
-                      {/* Reference */}
                       <td className="px-4 py-3 text-muted-foreground">
                         {e.reference || "—"}
                       </td>
-
-                      {/* Lock Status */}
                       <td className="px-4 py-3">
                         {e.locked ? (
                           <div className="flex items-center gap-2">
@@ -388,7 +443,6 @@ export default function Revenue() {
           </table>
         </div>
 
-        {/* Table Footer */}
         {filtered.length > 0 && (
           <div className="flex items-center justify-between border-t bg-muted/10 px-4 py-2">
             <p className="text-xs text-muted-foreground">

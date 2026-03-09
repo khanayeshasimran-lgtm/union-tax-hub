@@ -31,10 +31,19 @@ export default function AgentDashboard() {
       const leads = leadsRes.data || [];
       const converted = leads.filter((l) => l.status === "Converted").length;
 
+      // Bug 5 fix: query cases table for real open cases count
+      const casesRes = await supabase
+        .from("cases")
+        .select("id")
+        .in("lead_id", leads.map((l: any) => l.id))
+        .neq("current_stage", "Closed");
+
+      const openCases = casesRes.data?.length || 0;
+
       setStats({
         totalLeads: leads.length,
         followUpsDue: (followupsRes.data || []).length,
-        openCases: leads.filter((l) => l.status === "Converted").length,
+        openCases,
         monthlyRevenue: (revenueRes.data || []).reduce((s: number, r: any) => s + Number(r.amount_usd), 0),
         callsToday: (dispositionsRes.data || []).length,
         conversionRate: leads.length > 0 ? Math.round((converted / leads.length) * 100) : 0,

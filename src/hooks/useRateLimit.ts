@@ -23,13 +23,13 @@ export function useRateLimit() {
 
     if (error) {
       console.error("[RateLimit] Error:", error.message);
-      return true; // Fail open — don't block on DB errors
+      return true;
     }
 
     if (!data) {
       toast({
         title: "Too many attempts",
-        description: config.message || `Please wait before trying again.`,
+        description: config.message || "Please wait before trying again.",
         variant: "destructive",
       });
       return false;
@@ -41,24 +41,23 @@ export function useRateLimit() {
   return { check };
 }
 
-// ── Preset configs ────────────────────────────────────────────────────────────
 export const RATE_LIMITS = {
   disposition: {
     action: "log_disposition",
     maxAttempts: 30,
-    windowSeconds: 3600, // 30 per hour
+    windowSeconds: 3600,
     message: "Too many dispositions logged. Please wait before continuing.",
   },
   csvImport: {
     action: "csv_import",
     maxAttempts: 5,
-    windowSeconds: 3600, // 5 imports per hour
+    windowSeconds: 3600,
     message: "Too many imports. Please wait an hour before importing again.",
   },
   leadCreate: {
     action: "lead_create",
     maxAttempts: 50,
-    windowSeconds: 3600, // 50 lead creates per hour
+    windowSeconds: 3600,
     message: "Too many leads created. Please wait before adding more.",
   },
   estimationCreate: {
